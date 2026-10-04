@@ -30,72 +30,69 @@ new SlashCommandBuilder().setName("deal-scan").setDescription("Run a DonutSMP ba
 ];
 
 const dealSeen=new Map();
+
 const money=n=>"$"+Number(n||0).toLocaleString("en-US",{maximumFractionDigits:2});
-const itemKey=x=>[x?.item?.id||"",x?.item?.display_name||"",JSON.stringify(x?.item?.enchants||{})].join("|");
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
-async function donutGet(path,params={}){
- if(!donutApiKey)throw new Error("DONUT_API_KEY is missing in .env");
- const u=new URL("https://api.donutsmp.net"+path);
- for(const [k,v] of Object.entries(params))u.searchParams.set(k,String(v));
- const r=await fetch(u,{headers:{Authorization:"Bearer "+donutApiKey,Accept:"application/json"}});
- if(!r.ok)throw new Error("Donut API "+r.status);
- return r.json();
+async function donutAuctionPage(url){
+ const r=await fetch(url,{headers:{"User-Agent":"SMP-Deal-Scanner/1.0"}});
+ if(!r.ok)throw new Error("Donut.Auction HTTP "+r.status);
+ return r.text();
 }
-function median(a){const x=a.filter(Number.isFinite).sort((a,b)=>a-b);if(!x.length)return null;const m=Math.floor(x.length/2);return x.length%2?x[m]:(x[m-1]+x[m])/2}
-function auctionLabel(x){return x?.item?.display_name||x?.item?.id?.replace("minecraft:","")||"Unknown item"}
-
+function extractMoney(s){
+ const m=String(s).replace(/,/g,"").match(/\$\s*([0-9]+(?:\.[0-9]+)?)/);
+ return m?Number(m[1]):null;
+}
+function extractDeals(html){
+ const out=[];
+ const links=[...html.matchAll(/href=["'](\/item\/[a-zA-Z0-9-]+)["']/g)].map(m=>m[1]);
+ for(const p of [...new Set(links)]){
+  const chunk=html.slice(Math.max(0,html.indexOf(p)-300),Math.min(html.length,html.indexOf(p)+1800));
+  const name=(chunk.match(/>([^<>]{2,80})<\/a>/)||[])[1]||"Auction item";
+  const vals=[...chunk.matchAll(/(?:Value|value)\s*\$\s*([0-9,]+(?:\.[0-9]+)?)/g)].map(m=>Number(m[1].replace(/,/g,"")));
+  const live=(chunk.match(/Latest live unit price is \$\s*([0-9,]+(?:\.[0-9]+)?)/i)||[])[1];
+  const value=vals[0]||null, livePrice=live?Number(live.replace(/,/g,"")):null;
+  if(value&&livePrice)out.push({name:name.replace(/\s+/g," ").trim(),value,livePrice,url:"https://donut.auction"+p});
+ }
+ return out;
+}
 async function scanDeals(guild){
- if(!donutApiKey)return {sent:0,skipped:true};
- let transactions=[];
- for(let p=1;p<=3;p++){
-  const d=await donutGet("/v1/auction/transactions/"+p);
-  transactions.push(...(d.result||[]).filter(Boolean));
+ let html=await donutAuctionPage("https://donut.auction/");
+ let deals=extractDeals(html);
+ if(!deals.length){
+  html=await donutAuctionPage("https://donut.auction/live-prices");
+  deals=extractDeals(html);
  }
- const history=new Map();
- for(const t of transactions){
-  const k=itemKey(t), count=Number(t.item?.count||1), unit=Number(t.price)/Math.max(1,count);
-  if(unit>0){if(!history.has(k))history.set(k,[]);history.get(k).push(unit)}
- }
- let sent=0,total=0;
- for(let p=1;p<=DEAL_SCAN_PAGES;p++){
-  const d=await donutGet("/v1/auction/list/"+p,{sort:"lowest_price"});
-  const rows=(d.result||[]).filter(Boolean);
-  if(!rows.length)break;
-  total+=rows.length;
-  for(const a of rows){
-   const count=Number(a.item?.count||1), totalPrice=Number(a.price), unit=totalPrice/Math.max(1,count);
-   const hist=history.get(itemKey(a))||[];
-   const ref=median(hist);
-   if(!ref||unit<=0)continue;
-   const discount=((ref-unit)/ref)*100;
-   if(discount<DEAL_DISCOUNT_PERCENT)continue;
-   const listingId=[a.seller?.uuid||a.seller?.name||"",a.item?.id||"",a.item?.display_name||"",count,totalPrice,a.time_left||""].join("|");
-   if(dealSeen.has(listingId))continue;
-   dealSeen.set(listingId,Date.now());
-   const ch=guild.channels.cache.find(c=>c.name==="🔥・deals"&&c.type===ChannelType.GuildForum)||guild.channels.cache.find(c=>c.name==="🔥・deals");
-   if(!ch)continue;
-   const embed=new EmbedBuilder().setTitle("🔥 BARGAIN FOUND — "+auctionLabel(a)).setDescription("A current AH listing is significantly below recent sold-market prices.").addFields(
-    {name:"💰 Listing",value:money(totalPrice)+" total\n"+money(unit)+" / item",inline:true},
-    {name:"📊 Real market",value:money(ref)+" / item\n"+money(ref*count)+" estimated stack value",inline:true},
-    {name:"📉 Discount",value:discount.toFixed(1)+"% below market\nPotential gap: "+money((ref-unit)*count),inline:true},
-    {name:"👤 Seller",value:String(a.seller?.name||"unknown"),inline:true},
-    {name:"📦 Quantity",value:String(count),inline:true},
-    {name:"⏱️ Time left",value:Math.round(Number(a.time_left||0)/60000)+" min",inline:true}
-   ).setFooter({text:"Market reference = median of recent DonutSMP AH sales • Data may be incomplete"});
-   const text="https://donut.auction/";
-   if(ch.type===ChannelType.GuildForum)await ch.threads.create({name:"🔥 "+auctionLabel(a)+" — "+discount.toFixed(0)+"% off",message:{content:text,embeds:[embed]}}).catch(()=>{});
-   else await ch.send({content:text,embeds:[embed]}).catch(()=>{});
-   sent++;
-  }
-  if(rows.length<44)break;
-  await sleep(250);
+ const ch=guild.channels.cache.find(c=>c.name==="🔥・deals"&&c.type===ChannelType.GuildForum)||guild.channels.cache.find(c=>c.name==="🔥・deals");
+ if(!ch)return {sent:0,total:deals.length};
+ let sent=0;
+ for(const d of deals){
+  const discount=((d.value-d.livePrice)/d.value)*100;
+  if(discount<DEAL_DISCOUNT_PERCENT)continue;
+  const key=d.url+"|"+d.livePrice;
+  if(dealSeen.has(key))continue;
+  dealSeen.set(key,Date.now());
+  const embed=new EmbedBuilder()
+   .setTitle("🔥 BARGAIN FOUND — "+d.name)
+   .setDescription("Donut.Auction detected a live price below its current estimated value.")
+   .addFields(
+    {name:"🏷️ Live price",value:money(d.livePrice),inline:true},
+    {name:"📊 Real/reference value",value:money(d.value),inline:true},
+    {name:"📉 Below value",value:discount.toFixed(1)+"%",inline:true},
+    {name:"💰 Potential gap",value:money(d.value-d.livePrice),inline:true},
+    {name:"🔗 Listing / Item",value:d.url,inline:false}
+   )
+   .setFooter({text:"Source: Donut.Auction • Not affiliated with DonutSMP"});
+  if(ch.type===ChannelType.GuildForum)await ch.threads.create({name:"🔥 "+d.name+" — "+discount.toFixed(0)+"% off",message:{embeds:[embed]}}).catch(()=>{});
+  else await ch.send({embeds:[embed]}).catch(()=>{});
+  sent++;
  }
  for(const [k,t] of dealSeen)if(Date.now()-t>6*60*60*1000)dealSeen.delete(k);
- return {sent,total};
+ return {sent,total:deals.length};
 }
-client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token);await rest.put(Routes.applicationCommands(clientId),{body:[command.toJSON(),...extraCommands.map(x=>x.toJSON())]});console.log("Online:",client.user.tag,"• Global commands registered");if(donutApiKey){const run=async()=>{for(const g of client.guilds.cache.values()){try{const r=await scanDeals(g);if(r.sent)console.log("Deal scanner:",r.sent,"new deals");}catch(e){console.error("Deal scanner:",e.message)}}};run();setInterval(run,DEAL_SCAN_SECONDS*1000)}else console.log("Deal scanner disabled: add DONUT_API_KEY to .env")});
-client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{const type=i.options.getString("type");if(type==="full"){await setup(i.guild);await installMode(i.guild,"trading");await installMode(i.guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(i.guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error(e);await i.editReply("❌ Setup failed: "+e.message)}}if(i.commandName==="roles")await i.reply({content:"🎭 Go to #🎭・roles and react to the panels.",ephemeral:true});if(i.commandName==="market")await i.reply({content:"🛒 Marketplace is ready: use the Item Market forums for selling, buying, trades, rare items, bulk items and deals.",ephemeral:true});if(i.commandName==="dev")await i.reply({content:"💻 Developer hub is ready: Java, Paper, Spigot, Velocity, code review, plugin showcase and bug reports.",ephemeral:true});if(i.commandName==="deal-scan"){await i.deferReply({ephemeral:true});try{const r=await scanDeals(i.guild);await i.editReply(r.skipped?"⚠️ Deal scanner disabled. Add DONUT_API_KEY to .env.":"🔥 Scan complete — checked "+r.total+" listings and posted "+r.sent+" new bargain alerts in #🔥・deals.");}catch(e){await i.editReply("❌ Deal scan failed: "+e.message)}}});
+
+client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token);await rest.put(Routes.applicationCommands(clientId),{body:[command.toJSON(),...extraCommands.map(x=>x.toJSON())]});console.log("Online:",client.user.tag,"• Global commands registered");const run=async()=>{for(const g of client.guilds.cache.values()){try{const r=await scanDeals(g);if(r.sent)console.log("Web deal scanner:",r.sent,"new deals");}catch(e){console.error("Web deal scanner:",e.message)}}};run();setInterval(run,DEAL_SCAN_SECONDS*1000)});
+client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{const type=i.options.getString("type");if(type==="full"){await setup(i.guild);await installMode(i.guild,"trading");await installMode(i.guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(i.guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error(e);await i.editReply("❌ Setup failed: "+e.message)}}if(i.commandName==="roles")await i.reply({content:"🎭 Go to #🎭・roles and react to the panels.",ephemeral:true});if(i.commandName==="market")await i.reply({content:"🛒 Marketplace is ready: use the Item Market forums for selling, buying, trades, rare items, bulk items and deals.",ephemeral:true});if(i.commandName==="dev")await i.reply({content:"💻 Developer hub is ready: Java, Paper, Spigot, Velocity, code review, plugin showcase and bug reports.",ephemeral:true});if(i.commandName==="deal-scan"){await i.deferReply({ephemeral:true});try{const r=await scanDeals(i.guild);await i.editReply("🔥 Web scan complete — checked "+r.total+" Donut.Auction items and posted "+r.sent+" new bargain alerts in #🔥・deals.");}catch(e){await i.editReply("❌ Deal scan failed: "+e.message)}}});
 const reactionRoles={"🛒":"🛒 Seller","💰":"💰 Buyer","🔄":"🔄 Trader","⭐":"⭐ Trusted Trader","💎":"💎 Collector","🔥":"🔥 Flipper","🏪":"🏪 Verified Seller","💻":"💻 Developer","☕":"☕ Java Developer","🧩":"🧩 Paper Developer","⚡":"⚡ Velocity Developer","🧪":"🧪 Tester","🎨":"🎨 Designer","🐛":"🐛 Bug Hunter","📦":"📦 Plugin Creator","🏆":"🏆 Contributor"};
 client.on("messageReactionAdd",async(r,u)=>{if(u.bot||!r.message.guild)return;const n=reactionRoles[r.emoji.name];if(!n)return;try{const x=r.message.guild.roles.cache.find(z=>z.name===n);if(x)await(await r.message.guild.members.fetch(u.id)).roles.add(x)}catch(e){console.error(e.message)}});
 client.on("messageReactionRemove",async(r,u)=>{if(u.bot||!r.message.guild)return;const n=reactionRoles[r.emoji.name];if(!n)return;try{const x=r.message.guild.roles.cache.find(z=>z.name===n);if(x)await(await r.message.guild.members.fetch(u.id)).roles.remove(x)}catch(e){console.error(e.message)}});
