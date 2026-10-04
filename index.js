@@ -61,10 +61,11 @@ new SlashCommandBuilder().setName("ticket").setDescription("Create a private sup
 new SlashCommandBuilder().setName("close-ticket").setDescription("Close the current ticket").setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 new SlashCommandBuilder().setName("deal-scan").setDescription("Run a Donut.Auction bargain scan now").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 new SlashCommandBuilder().setName("carl").setDescription("Get the official Carl-bot dashboard"),
-new SlashCommandBuilder().setName("reset-server").setDescription("Reset the bot-managed SMP server structure").addStringOption(o=>o.setName("confirm").setDescription("Type RESET to confirm").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+new SlashCommandBuilder().setName("reset-server").setDescription("Reset the bot-managed SMP server structure").addStringOption(o=>o.setName("confirm").setDescription("Type RESET to confirm").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+new SlashCommandBuilder().setName("embed").setDescription("Create a professional embed in the current channel").addStringOption(o=>o.setName("title").setDescription("Embed title").setRequired(true)).addStringOption(o=>o.setName("description").setDescription("Embed description").setRequired(true)).addStringOption(o=>o.setName("color").setDescription("Hex color, e.g. #5865F2").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
 ];
 
-const dealSeen=new Map();new SlashCommandBuilder().setName("embed").setDescription("Create a professional embed in the current channel").addStringOption(o=>o.setName("title").setDescription("Embed title").setRequired(true)).addStringOption(o=>o.setName("description").setDescription("Embed description").setRequired(true)).addStringOption(o=>o.setName("color").setDescription("Hex color, e.g. #5865F2").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+const dealSeen=new Map();
 
 const money=n=>"$"+Number(n||0).toLocaleString("en-US",{maximumFractionDigits:2});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
