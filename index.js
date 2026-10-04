@@ -36,7 +36,8 @@ new SlashCommandBuilder().setName("unlock").setDescription("Unlock the current c
 new SlashCommandBuilder().setName("announce").setDescription("Send an announcement").addStringOption(o=>o.setName("message").setDescription("Announcement text").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 new SlashCommandBuilder().setName("ticket").setDescription("Create a private support ticket"),
 new SlashCommandBuilder().setName("close-ticket").setDescription("Close the current ticket").setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
-new SlashCommandBuilder().setName("deal-scan").setDescription("Run a Donut.Auction bargain scan now").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+new SlashCommandBuilder().setName("deal-scan").setDescription("Run a Donut.Auction bargain scan now").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+new SlashCommandBuilder().setName("carl").setDescription("Get the official Carl-bot dashboard")
 ];
 
 const dealSeen=new Map();
@@ -120,6 +121,7 @@ client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token
 client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{const type=i.options.getString("type");if(type==="full"){await setup(i.guild);await installMode(i.guild,"trading");await installMode(i.guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(i.guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error(e);await i.editReply("❌ Setup failed: "+e.message)}}if(i.commandName==="roles")await i.reply({content:"🎭 Go to #🎭・roles and react to the panels.",ephemeral:true});if(i.commandName==="market")await i.reply({content:"🛒 Marketplace is ready: use the Item Market forums for selling, buying, trades, rare items, bulk items and deals.",ephemeral:true});if(i.commandName==="dev")await i.reply({content:"💻 Developer hub is ready: Java, Paper, Spigot, Velocity, code review, plugin showcase and bug reports.",ephemeral:true});
 if(i.commandName==="help")await i.reply({content:"🛒 **Market:** /market /deal-scan\n💱 **Trading:** /invite\n🛡️ **Moderation:** /lock /unlock /announce\n🎫 **Support:** /ticket /close-ticket\n🔧 **Utility:** /ping /serverinfo /roles /dev",ephemeral:true});
 if(i.commandName==="ping")await i.reply("🏓 Pong! "+client.ws.ping+"ms");
+if(i.commandName==="carl")await i.reply({content:"🤖 Add/configure **Carl-bot** from its official dashboard: https://carl.gg/\nIt supports reaction roles, automod, logging, moderation and suggestions.",ephemeral:true});
 if(i.commandName==="serverinfo")await i.reply({content:"📊 **"+i.guild.name+"**\n👥 Members: "+i.guild.memberCount+"\n🆔 Server ID: "+i.guild.id+"\n🛒 Marketplace + SMP + Developer Hub",ephemeral:true});
 if(i.commandName==="invite"){const n=await inviteStats(i.guild,i.user);await i.reply({content:"📨 **"+i.user.username+"** has **"+n+"** invite uses.",ephemeral:true});}
 if(i.commandName==="lock"){await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:false});await i.reply("🔒 Channel locked by "+i.user+".");}
