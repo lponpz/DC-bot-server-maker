@@ -159,3 +159,108 @@ const reactionRoles={"🛒":"🛒 Seller","💰":"💰 Buyer","🔄":"🔄 Trade
 client.on("messageReactionAdd",async(r,u)=>{if(u.bot||!r.message.guild)return;const n=reactionRoles[r.emoji.name];if(!n)return;try{const x=r.message.guild.roles.cache.find(z=>z.name===n);if(x)await(await r.message.guild.members.fetch(u.id)).roles.add(x)}catch(e){console.error(e.message)}});
 client.on("messageReactionRemove",async(r,u)=>{if(u.bot||!r.message.guild)return;const n=reactionRoles[r.emoji.name];if(!n)return;try{const x=r.message.guild.roles.cache.find(z=>z.name===n);if(x)await(await r.message.guild.members.fetch(u.id)).roles.remove(x)}catch(e){console.error(e.message)}});
 client.login(token);
+/* ALL-IN-ONE UPGRADE: ticket center + reliable Donut.Auction item-page scanner */
+async function allInOneTicket(guild,user,type="Support"){
+  const name="ticket-"+user.id;
+  const old=guild.channels.cache.find(c=>c.name===name);
+  if(old)return old;
+  const parent=guild.channels.cache.find(c=>c.name==="🎫 SUPPORT"&&c.type===ChannelType.GuildCategory);
+  const staffNames=["👑 Owner","🛡️ Administrator","🔨 Senior Moderator","🛡️ Moderator","🛡️ SMP Staff"];
+  const permissionOverwrites=[
+    {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
+    {id:user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]},
+    {id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageChannels]}
+  ];
+  for(const n of staffNames){
+    const r=guild.roles.cache.find(x=>x.name===n);
+    if(r)permissionOverwrites.push({id:r.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]});
+  }
+  const ch=await guild.channels.create({name,type:ChannelType.GuildText,parent:parent?.id,permissionOverwrites});
+  const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("aio_ticket_close").setLabel("Close Ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger));
+  await ch.send({content:"# 🎫 "+type+" Ticket\n\nWelcome "+user+"! Staff will help you here.\n\n**Type:** "+type+"\n**Privacy:** only you and staff can see this channel.\n⚠️ Never share passwords, tokens or API keys.",components:[row]});
+  return ch;
+}
+async function installTicketCenter(guild){
+  const ch=guild.channels.cache.find(c=>c.name==="🎟️・create-ticket");
+  if(!ch)return;
+  const recent=await ch.messages.fetch({limit:30}).catch(()=>null);
+  if(recent?.some(m=>m.author.id===client.user.id&&m.components?.some(x=>x.components?.length)))return;
+  const row=new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("aio_ticket:Support").setLabel("Support").setEmoji("🎫").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("aio_ticket:Trade").setLabel("Trade Help").setEmoji("💱").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("aio_ticket:Report").setLabel("Report / Scam").setEmoji("🚨").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId("aio_ticket:Developer").setLabel("Developer").setEmoji("💻").setStyle(ButtonStyle.Secondary)
+  );
+  await ch.send({content:"# 🎫 SUPPORT CENTER\n\nOpen a private ticket with the button that matches your issue.\n\n🎫 Support • 💱 Trade Help • 🚨 Report / Scam • 💻 Developer\n\nNo public spam, no exposed credentials.",components:[row]});
+}
+client.once("ready",async()=>{
+  for(const g of client.guilds.cache.values())await installTicketCenter(g).catch(e=>console.error("Ticket center:",e.message));
+});
+client.on("interactionCreate",async i=>{
+  if(!i.isButton())return;
+  if(i.customId.startsWith("aio_ticket:")){
+    const type=i.customId.split(":")[1];
+    try{const ch=await allInOneTicket(i.guild,i.user,type);await i.reply({content:"🎫 Ticket: "+ch,ephemeral:true});}
+    catch(e){await i.reply({content:"❌ Ticket error: "+e.message,ephemeral:true});}
+  }
+  if(i.customId==="aio_ticket_close"){
+    if(!i.channel?.name.startsWith("ticket-"))return i.reply({content:"❌ Not a ticket.",ephemeral:true});
+    await i.reply("🔒 Closing ticket...");
+    setTimeout(()=>i.channel.delete().catch(()=>{}),1200);
+  }
+});
+
+/* Web scanner: homepage -> real item pages -> latest live unit price */
+async function allInOneAuctionPage(url){
+  const r=await fetch(url,{headers:{"User-Agent":"SMP-Marketplace-Bot/2.0","Accept":"text/html,application/xhtml+xml"}});
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  return r.text();
+}
+function allInOneItemLinks(html){
+  return [...new Set([...html.matchAll(/href=["'](\\/item\\/[a-zA-Z0-9-]+)["']/g)].map(m=>"https://donut.auction"+m[1]))].slice(0,DEAL_SCAN_PAGES);
+}
+function allInOneParseItem(html,url){
+  const name=(html.match(/<h1[^>]*>([^<]+)<\\/h1>/i)||[])[1];
+  const value=(html.match(/\\$([0-9,]+(?:\\.[0-9]+)?)/)||[])[1];
+  const live=(html.match(/Latest live unit price is \\$\\s*([0-9,]+(?:\\.[0-9]+)?)/i)||[])[1];
+  if(!name||!value||!live)return null;
+  return {name:name.trim(),value:Number(value.replace(/,/g,"")),livePrice:Number(live.replace(/,/g,"")),url};
+}
+async function scanDeals(guild){
+  const home=await allInOneAuctionPage("https://donut.auction/");
+  const links=allInOneItemLinks(home);
+  const deals=[];
+  for(const url of links){
+    try{
+      const page=await allInOneAuctionPage(url);
+      const d=allInOneParseItem(page,url);
+      if(d)deals.push(d);
+    }catch(e){console.error("Auction page:",e.message)}
+    await sleep(200);
+  }
+  const ch=guild.channels.cache.find(c=>c.name==="🔥・deals");
+  if(!ch)return {sent:0,total:deals.length};
+  const good=deals.map(d=>({...d,discount:((d.value-d.livePrice)/d.value)*100,gap:d.value-d.livePrice}))
+    .filter(d=>d.discount>=DEAL_DISCOUNT_PERCENT&&d.livePrice>0)
+    .sort((a,b)=>b.discount-a.discount).slice(0,8);
+  let sent=0;
+  for(const d of good){
+    const key=d.url+"|"+d.livePrice;
+    if(dealSeen.has(key))continue;
+    dealSeen.set(key,Date.now());
+    const label=d.discount>=50?"🚨 INSANE DEAL":d.discount>=35?"🔥 GREAT DEAL":"💎 GOOD DEAL";
+    const embed=new EmbedBuilder().setTitle(label+" • "+d.name)
+      .setDescription("Only qualifying bargains are posted here — no dismiss/spam alerts.")
+      .addFields(
+        {name:"🏷️ Live price",value:"$"+d.livePrice.toLocaleString("en-US"),inline:true},
+        {name:"📊 Reference value",value:"$"+d.value.toLocaleString("en-US"),inline:true},
+        {name:"📉 Discount",value:d.discount.toFixed(1)+"%",inline:true},
+        {name:"💰 Price gap",value:"$"+d.gap.toLocaleString("en-US"),inline:true},
+        {name:"🔗 Listing",value:d.url,inline:false}
+      ).setTimestamp().setFooter({text:"Donut.Auction • independent community tracker"});
+    await ch.send({embeds:[embed]}).catch(()=>{});
+    sent++;
+  }
+  for(const [k,t] of dealSeen)if(Date.now()-t>6*60*60*1000)dealSeen.delete(k);
+  return {sent,total:deals.length};
+}
