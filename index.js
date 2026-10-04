@@ -64,7 +64,7 @@ new SlashCommandBuilder().setName("carl").setDescription("Get the official Carl-
 new SlashCommandBuilder().setName("reset-server").setDescription("Reset the bot-managed SMP server structure").addStringOption(o=>o.setName("confirm").setDescription("Type RESET to confirm").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ];
 
-const dealSeen=new Map();
+const dealSeen=new Map();new SlashCommandBuilder().setName("embed").setDescription("Create a professional embed in the current channel").addStringOption(o=>o.setName("title").setDescription("Embed title").setRequired(true)).addStringOption(o=>o.setName("description").setDescription("Embed description").setRequired(true)).addStringOption(o=>o.setName("color").setDescription("Hex color, e.g. #5865F2").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
 const money=n=>"$"+Number(n||0).toLocaleString("en-US",{maximumFractionDigits:2});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -146,6 +146,14 @@ client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.c
 if(i.commandName==="roles")await i.reply({content:"🎭 Go to #🎭・roles and react to the panels.",ephemeral:true});if(i.commandName==="market")await i.reply({content:"🛒 Marketplace is ready: use the Item Market forums for selling, buying, trades, rare items, bulk items and deals.",ephemeral:true});if(i.commandName==="dev")await i.reply({content:"💻 Developer hub is ready: Java, Paper, Spigot, Velocity, code review, plugin showcase and bug reports.",ephemeral:true});
 if(i.commandName==="help")await i.reply({content:"🛒 **Market:** /market /deal-scan\n💱 **Trading:** /invite\n🛡️ **Moderation:** /lock /unlock /announce\n🎫 **Support:** /ticket /close-ticket\n🔧 **Utility:** /ping /serverinfo /roles /dev",ephemeral:true});
 if(i.commandName==="ping")await i.reply("🏓 Pong! "+client.ws.ping+"ms");
+if(i.commandName==="embed"){
+ const title=i.options.getString("title"),description=i.options.getString("description"),raw=i.options.getString("color")||"#5865F2";
+ const hex=/^#?[0-9A-Fa-f]{6}$/.test(raw)?raw.replace("#",""):"5865F2";
+ const embed=new EmbedBuilder().setTitle(title).setDescription(description).setColor(parseInt(hex,16)).setTimestamp().setFooter({text:"SMP Marketplace"});
+ await i.channel.send({embeds:[embed]});
+ await i.reply({content:"✅ Embed sent.",ephemeral:true});
+}
+
 if(i.commandName==="carl")await i.reply({content:"🤖 Add/configure **Carl-bot** from its official dashboard: https://carl.gg/\nIt supports reaction roles, automod, logging, moderation and suggestions.",ephemeral:true});
 if(i.commandName==="serverinfo")await i.reply({content:"📊 **"+i.guild.name+"**\n👥 Members: "+i.guild.memberCount+"\n🆔 Server ID: "+i.guild.id+"\n🛒 Marketplace + SMP + Developer Hub",ephemeral:true});
 if(i.commandName==="invite"){const n=await inviteStats(i.guild,i.user);await i.reply({content:"📨 **"+i.user.username+"** has **"+n+"** invite uses.",ephemeral:true});}
