@@ -226,10 +226,10 @@ async function allInOneAuctionPage(url){
   return r.text();
 }
 function allInOneItemLinks(html){
-  return [...new Set([...html.matchAll(/href=["'](\\/item\\/[a-zA-Z0-9-]+)["']/g)].map(m=>"https://donut.auction"+m[1]))].slice(0,DEAL_SCAN_PAGES);
+  return [...new Set([...html.matchAll(/href=["'](\/item\/[a-zA-Z0-9-]+)["']/g)].map(m=>"https://donut.auction"+m[1]))].slice(0,DEAL_SCAN_PAGES);
 }
 function allInOneParseItem(html,url){
-  const name=(html.match(/<h1[^>]*>([^<]+)<\\/h1>/i)||[])[1];
+  const name=(html.match(/<h1[^>]*>([^<]+)<\/h1>/i)||[])[1];
   const value=(html.match(/\\$([0-9,]+(?:\\.[0-9]+)?)/)||[])[1];
   const live=(html.match(/Latest live unit price is \\$\\s*([0-9,]+(?:\\.[0-9]+)?)/i)||[])[1];
   if(!name||!value||!live)return null;
