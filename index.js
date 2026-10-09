@@ -93,7 +93,66 @@ async function setupMCFA(guild,mode="mcfa-full"){
   return Object.values(layout).reduce((n,x)=>n+x.length,0);
 }
 
-const command=new SlashCommandBuilder().setName("setup").setDescription("Choose what to install").addStringOption(o=>o.setName("type").setDescription("Setup type").setRequired(true).addChoices({name:"🛒 Trading / Marketplace",value:"trading"},{name:"💻 Developer / Plugins",value:"developer"},{name:"🚀 Full SMP + Trading + Developer",value:"full"},{name:"🎁 MCFA Giveaways",value:"mcfa-giveaways"},{name:"🌐 MCFA Big Community",value:"mcfa-community"},{name:"👑 Full MCFA Community + Giveaways",value:"mcfa-full"})).setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
+async function setupTemplate(guild,mode){
+  await guild.channels.fetch(); await guild.roles.fetch();
+  const templates={
+    "hosting":{roles:[["🖥️ Hosting Owner",0xF1C40F,true],["🛠️ Hosting Admin",0xE74C3C,true],["🎧 Support Team",0x3498DB,true],["💎 Customer",0x2ECC71,false],["🧪 Tester",0x9B59B6,false]],groups:{
+      "📌・GET STARTED":["👋・welcome","📜・rules","📢・status-announcements","💳・plans-pricing","📚・knowledge-base"],
+      "🖥️・HOSTING":["🌐・panel-links","🚀・server-deployments","⚙️・setup-guides","🧩・modpack-support","🔌・plugin-support"],
+      "🎧・SUPPORT DESK":["🎟️・open-ticket","🆘・technical-help","🐛・report-issue","💡・feature-requests"],
+      "💬・COMMUNITY":["💬・general-chat","📸・showcase","⭐・reviews"],
+      "🔒・STAFF ROOM":["🛡️・staff-chat","📋・support-logs"]}},
+    "smp":{roles:[["👑 SMP Owner",0xF1C40F,true],["🛡️ SMP Staff",0xE74C3C,true],["💎 VIP",0x9B59B6,false],["🎮 Player",0x3498DB,false]],groups:{
+      "📌・START HERE":["👋・welcome","📜・rules","📢・announcements","🗺️・server-info","🔗・server-ip"],
+      "🌍・SMP WORLD":["💬・general","📸・screenshots","🏡・build-showcase","🛒・player-market","⚔️・looking-for-group"],
+      "🎉・EVENTS":["📅・events","🎁・giveaways","🏆・leaderboards"],
+      "🎫・SUPPORT":["🎟️・create-ticket","🚨・player-reports"],
+      "🔒・STAFF":["🛡️・staff-chat","📋・mod-logs"]}},
+    "pvp":{roles:[["👑 Network Owner",0xF1C40F,true],["🛡️ PvP Staff",0xE74C3C,true],["⚔️ Competitor",0xE67E22,false],["🏆 Tournament Winner",0x9B59B6,false]],groups:{
+      "📌・INFO":["👋・welcome","📜・rules","📢・announcements","🌐・server-status"],
+      "⚔️・PVP ARENA":["💬・pvp-chat","🎯・find-a-fight","📹・clips-and-combos","🧠・tips-and-guides","🏆・rankings"],
+      "🏟️・TOURNAMENTS":["📅・tournaments","📝・team-recruitment","🎁・prizes"],
+      "🛡️・HELP":["🎟️・support-ticket","🚨・report-player"],
+      "🔒・STAFF":["🛡️・staff-chat","📋・reports-log"]}},
+    "network":{roles:[["👑 Network Owner",0xF1C40F,true],["🛡️ Network Admin",0xE74C3C,true],["🔨 Moderator",0xE67E22,true],["💎 Premium",0x9B59B6,false],["🎮 Member",0x3498DB,false]],groups:{
+      "📌・NETWORK INFO":["👋・welcome","📜・rules","📢・network-news","🌐・server-status","🔗・server-addresses"],
+      "🎮・GAME MODES":["🌍・survival","⚔️・practice-pvp","💀・lifesteal","🧱・skyblock","🎨・creative-showcase"],
+      "🌟・COMMUNITY":["💬・general","📸・media","💡・suggestions","📅・events","🎁・giveaways"],
+      "🎫・SUPPORT":["🎟️・open-ticket","🚨・reports"],
+      "🔒・STAFF":["🛡️・staff-chat","📋・mod-logs"]}},
+    "creator":{roles:[["👑 Creator Owner",0xF1C40F,true],["🎬 Creator",0xE74C3C,true],["🎨 Designer",0x9B59B6,false],["🎮 Community Member",0x3498DB,false]],groups:{
+      "📌・WELCOME":["👋・welcome","📜・rules","📢・announcements"],
+      "🎬・CONTENT":["📺・latest-videos","🎞️・clips","📸・screenshots","💡・content-ideas"],
+      "🤝・COMMUNITY":["💬・general","🎮・gaming-chat","📅・live-events","🎁・giveaways"],
+      "🛠️・COLLABS":["🤝・looking-for-collabs","🎨・commissions","📨・business-inquiries"],
+      "🔒・STAFF":["🛡️・staff-chat","📋・mod-logs"]}},
+    "events":{roles:[["👑 Event Owner",0xF1C40F,true],["🎤 Event Host",0x9B59B6,true],["🛡️ Moderator",0xE74C3C,true],["🔔 Event Pings",0x2ECC71,false]],groups:{
+      "📌・EVENT INFO":["👋・welcome","📜・rules","📢・event-announcements","🗓️・event-calendar"],
+      "🎉・PARTICIPATE":["📝・sign-ups","💬・event-chat","🎁・prize-info","🏆・winners"],
+      "🛟・HELP":["🎟️・support","🚨・report-a-problem"],
+      "🔒・STAFF":["🛡️・staff-chat","📋・event-logs"]}}
+  };
+  const t=templates[mode]; if(!t)throw new Error("Unknown template: "+mode);
+  for(const [n,c,h] of t.roles)await role(guild,n,c,h);
+  for(const [catName,names] of Object.entries(t.groups)){
+    const category=await cat(guild,catName);
+    for(const name of names)await channel(guild,category,name,"text");
+    if(catName==="🔒・STAFF"||catName==="🔒・STAFF ROOM"){
+      await category.permissionOverwrites.edit(guild.roles.everyone,{ViewChannel:false});
+      for(const [n] of t.roles.filter(x=>/Owner|Admin|Staff|Moderator|Support Team/.test(x[0]))){
+        const r=guild.roles.cache.find(x=>x.name===n); if(r)await category.permissionOverwrites.edit(r,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true});
+      }
+    }
+  }
+  const welcome=guild.channels.cache.find(c=>c.name==="👋・welcome");
+  if(welcome&&!welcome.topic?.includes("template welcome posted"))await welcome.send("# 👋 Welcome!\n\nThis server was created with the **"+mode.toUpperCase()+" template**. Read #📜・rules first, then explore the channels.\n\n🛡️ Staff will never ask for passwords, tokens, or verification codes.").catch(()=>{});
+  const rules=guild.channels.cache.find(c=>c.name==="📜・rules");
+  if(rules&&!rules.topic?.includes("template rules posted"))await rules.send("# 📜 Community Rules\n\n1. Be respectful.\n2. No spam, scams, phishing, or impersonation.\n3. Keep messages in the correct channels.\n4. Do not share passwords, tokens, or private information.\n5. Follow Discord Terms and Community Guidelines.").catch(()=>{});
+  return Object.values(t.groups).reduce((n,x)=>n+x.length,0);
+}
+
+const command=new SlashCommandBuilder().setName("setup").setDescription("Choose a server template to install").addStringOption(o=>o.setName("type").setDescription("Pick a ready-made server layout").setRequired(true).addChoices({name:"🛒 Trading / Marketplace",value:"trading"},{name:"💻 Developer / Plugins",value:"developer"},{name:"🚀 Full SMP + Trading + Developer",value:"full"},{name:"🎁 MCFA Giveaways",value:"mcfa-giveaways"},{name:"🌐 MCFA Big Community",value:"mcfa-community"},{name:"👑 Full MCFA Community + Giveaways",value:"mcfa-full"},{name:"🖥️ Minecraft Hosting Company",value:"hosting"},{name:"🌍 Survival SMP Community",value:"smp"},{name:"⚔️ PvP / Practice Network",value:"pvp"},{name:"🕸️ Multi-Mode Minecraft Network",value:"network"},{name:"🎬 Creator / YouTuber Community",value:"creator"},{name:"🎉 Events & Giveaways Hub",value:"events"})).setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
+.setDescription("Choose what to install").addStringOption(o=>o.setName("type").setDescription("Setup type").setRequired(true).addChoices({name:"🛒 Trading / Marketplace",value:"trading"},{name:"💻 Developer / Plugins",value:"developer"},{name:"🚀 Full SMP + Trading + Developer",value:"full"},{name:"🎁 MCFA Giveaways",value:"mcfa-giveaways"},{name:"🌐 MCFA Big Community",value:"mcfa-community"},{name:"👑 Full MCFA Community + Giveaways",value:"mcfa-full"})).setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 const extraCommands=[
 new SlashCommandBuilder().setName("mcfa-giveaway").setDescription("Start an MCFA/community giveaway with an entry button").addStringOption(o=>o.setName("prize").setDescription("Prize you are authorized to give away").setRequired(true)).addIntegerOption(o=>o.setName("minutes").setDescription("Duration in minutes (1-10080)").setRequired(true).setMinValue(1).setMaxValue(10080)).addIntegerOption(o=>o.setName("winners").setDescription("Number of winners (1-10)").setRequired(false).setMinValue(1).setMaxValue(10)).setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 new SlashCommandBuilder().setName("roles").setDescription("Show role panels"),
@@ -193,7 +252,7 @@ async function inviteStats(guild,user){
  return [...inv.values()].filter(x=>x.inviter?.id===user.id).reduce((n,x)=>n+(x.uses||0),0);
 }
 client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token);await rest.put(Routes.applicationCommands(clientId),{body:[command.toJSON(),...extraCommands.map(x=>x.toJSON())]});console.log("Online:",client.user.tag,"• Global commands registered");for(const g of client.guilds.cache.values())refreshInvites(g);animateRoles();setInterval(animateRoles,180000);const run=async()=>{for(const g of client.guilds.cache.values()){try{const r=await scanDeals(g);if(r.sent)console.log("Web deal scanner:",r.sent,"new deals");}catch(e){console.error("Web deal scanner:",e.message)}}};run();setInterval(run,DEAL_SCAN_SECONDS*1000)});
-client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{if(!i.guildId)return i.editReply("❌ Use /setup inside your Discord server, not in DMs.");const guild=i.guild||await client.guilds.fetch(i.guildId);if(!guild||!guild.channels||!guild.roles)return i.editReply("❌ I could not access this server. Please restart the bot and try again.");await guild.channels.fetch();await guild.roles.fetch();const type=i.options.getString("type");if(type==="mcfa-full"||type==="mcfa-community"||type==="mcfa-giveaways"){const n=await setupMCFA(guild,type);await ensureServerIcon(guild);await i.editReply("🎁 MCFA setup complete — created/checked "+n+" channels across giveaway, community and safety sections.");}else if(type==="full"){await setup(guild);await ensureServerIcon(guild);await installMode(guild,"trading");await installMode(guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error("Setup failed:",e);await i.editReply("❌ Setup failed: "+(e?.message||"Unknown error")+". Check bot server access and permissions.");}}if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{await resetBotStructure(i.guild);await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Bot-managed server structure reset and rebuilt. Existing unrelated channels/roles were left untouched.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
+client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{if(!i.guildId)return i.editReply("❌ Use /setup inside your Discord server, not in DMs.");const guild=i.guild||await client.guilds.fetch(i.guildId);if(!guild||!guild.channels||!guild.roles)return i.editReply("❌ I could not access this server. Please restart the bot and try again.");await guild.channels.fetch();await guild.roles.fetch();const type=i.options.getString("type");if(type==="mcfa-full"||type==="mcfa-community"||type==="mcfa-giveaways"){const n=await setupMCFA(guild,type);await ensureServerIcon(guild);await i.editReply("🎁 MCFA setup complete — created/checked "+n+" channels across giveaway, community and safety sections.");}else if(["hosting","smp","pvp","network","creator","events"].includes(type)){const n=await setupTemplate(guild,type);await ensureServerIcon(guild);await i.editReply("✅ "+type.toUpperCase()+" template installed! Created/checked "+n+" channels. You can customize names and permissions anytime.");}else if(type==="full"){await setup(guild);await ensureServerIcon(guild);await installMode(guild,"trading");await installMode(guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error("Setup failed:",e);await i.editReply("❌ Setup failed: "+(e?.message||"Unknown error")+". Check bot server access and permissions.");}}if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{await resetBotStructure(i.guild);await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Bot-managed server structure reset and rebuilt. Existing unrelated channels/roles were left untouched.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
 if(i.commandName==="mcfa-giveaway"){
  await i.deferReply({ephemeral:true});
  const prize=i.options.getString("prize"), minutes=i.options.getInteger("minutes"), winners=i.options.getInteger("winners")||1;
