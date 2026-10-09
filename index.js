@@ -45,7 +45,55 @@ async function resetBotStructure(g){await g.channels.fetch();await g.roles.fetch
 async function ensureServerIcon(g){if(g.icon)return false;try{const png=makeSmpIconPng();await g.setIcon(png,"Automatic SMP marketplace icon");return true}catch(e){console.error("Server icon:",e.message);return false;}}
 function makeSmpIconPng(){const zlib=require("zlib");const w=256,h=256;const raw=[];for(let y=0;y<h;y++){raw.push(0);for(let x=0;x<w;x++){const dx=x-128,dy=y-128,d=Math.sqrt(dx*dx+dy*dy);let rr=18,gg=25,bb=38;if(d<112){rr=46;gg=204;bb=113;}if(d<88){rr=24;gg=32;bb=48;}if((x>48&&x<208&&y>96&&y<160)||(x>112&&x<144&&y>52&&y<204)){rr=46;gg=204;bb=113;}raw.push(rr,gg,bb,255);}}const crc32=b=>{let c=0xffffffff;for(const n of b){c^=n;for(let k=0;k<8;k++)c=(c>>>1)^(0xedb88320&-(c&1));}return (c^0xffffffff)>>>0};const chunk=(type,data)=>{const t=Buffer.from(type);const d=Buffer.from(data);const out=Buffer.alloc(12+d.length);out.writeUInt32BE(d.length,0);t.copy(out,4);d.copy(out,8);out.writeUInt32BE(crc32(Buffer.concat([t,d])),8+d.length);return out};const sig=Buffer.from([137,80,78,71,13,10,26,10]);const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(w,0);ihdr.writeUInt32BE(h,4);ihdr[8]=8;ihdr[9]=6;const idat=zlib.deflateSync(Buffer.from(raw));return Buffer.concat([sig,chunk("IHDR",ihdr),chunk("IDAT",idat),chunk("IEND",Buffer.alloc(0))]);}
 async function installMode(g,mode){await g.roles.fetch();for(const [n,c,h] of roles)await role(g,n,c,h);let panel=g.channels.cache.find(x=>x.name==="🎭・roles");if(!panel)panel=await g.channels.create({name:"🎭・roles",type:ChannelType.GuildText});await makeRolePanel(g,panel,mode);return panel.name;}
-const command=new SlashCommandBuilder().setName("setup").setDescription("Choose what to install").addStringOption(o=>o.setName("type").setDescription("Setup type").setRequired(true).addChoices({name:"🛒 Trading / Marketplace",value:"trading"},{name:"💻 Developer / Plugins",value:"developer"},{name:"🚀 Full SMP + Trading + Developer",value:"full"})).setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
+
+async function setupMCFA(guild,mode="mcfa-full"){
+  await guild.channels.fetch(); await guild.roles.fetch();
+  const roleDefs=[
+    ["👑 MCFA Owner",0xF1C40F,true],["🛡️ MCFA Admin",0xE74C3C,true],["🔨 MCFA Moderator",0xE67E22,true],
+    ["🎁 Giveaway Host",0x9B59B6,true],["✅ Verified Member",0x2ECC71,false],["🎮 Minecraft Player",0x3498DB,false],
+    ["💎 Premium Member",0x00CEC9,false],["🔔 Giveaway Pings",0xF1C40F,false],["🌟 Community Member",0x95A5A6,false]
+  ];
+  for(const [name,color,hoist] of roleDefs) await role(guild,name,color,hoist);
+  const layout={
+    "📌・START HERE":["👋・welcome","📜・rules","📢・announcements","🧭・how-it-works","🎭・get-roles"],
+    "🎁・MCFA GIVEAWAYS":["🎁・mcfa-giveaways","📥・giveaway-entries","🏆・winners","📦・prize-proof"],
+    "🌐・BIG COMMUNITY":["💬・general-chat","🎮・minecraft-chat","📸・media","🤝・introductions","💡・suggestions","📊・polls"],
+    "🎉・EVENTS & REWARDS":["📅・events","🔥・daily-activity","🎯・invite-rewards","💎・reward-info"],
+    "🛡️・SAFETY & SUPPORT":["🔐・safety-rules","🚨・report-scams","🎟️・create-ticket","❓・support"],
+    "🔒・STAFF ONLY":["🛡️・staff-chat","📋・mod-logs","🎁・giveaway-management"]
+  };
+  const made={};
+  for(const [catName,names] of Object.entries(layout)){
+    const category=await cat(guild,catName);
+    for(const name of names) made[name]=await channel(guild,category,name,"text");
+    if(catName==="🔒・STAFF ONLY"){
+      await category.permissionOverwrites.edit(guild.roles.everyone,{ViewChannel:false});
+      for(const staffName of ["👑 MCFA Owner","🛡️ MCFA Admin","🔨 MCFA Moderator","🎁 Giveaway Host"]){
+        const r=guild.roles.cache.find(x=>x.name===staffName);
+        if(r)await category.permissionOverwrites.edit(r,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true});
+      }
+    }
+  }
+  const info={
+    "👋・welcome":"# 🌐 Welcome to the MCFA Community!\n\n🎁 MCFA-themed giveaways & events\n🎮 Minecraft community and chat\n🏆 Winner announcements and prize proof\n🛡️ Scam reports and staff support\n\nRead the rules and check #🎭・get-roles. Never share passwords, session tokens, or Microsoft verification codes.",
+    "📜・rules":"# 📜 Community Rules\n\n1. Respect members and staff.\n2. No fake giveaways, fake proofs, or impersonation.\n3. Never ask for passwords, session cookies, recovery codes, or Microsoft verification codes.\n4. Giveaway rules and eligibility must be posted clearly.\n5. No spam, phishing links, malware, or stolen accounts.\n6. Prize providers must have the right to give away the prize.\n7. Follow Discord rules and Minecraft/Microsoft terms.",
+    "🧭・how-it-works":"# 🧭 How Giveaways Work\n\n1. Read the giveaway post and eligibility.\n2. Use the giveaway entry button or instructions.\n3. Winners are selected fairly and announced in #🏆・winners.\n4. Prize proof is posted in #📦・prize-proof when safe.\n\nStaff will never need your password or login code to give you a prize.",
+    "🎁・mcfa-giveaways":"# 🎁 MCFA GIVEAWAYS\n\nOfficial giveaway posts go here. Each post should state prize, end time, eligibility, winner count and claim deadline. Only run giveaways for accounts/prizes you lawfully own and are permitted to transfer. Never request a winner’s password or verification code.",
+    "🔐・safety-rules":"# 🔐 Account Safety\n\nNever enter Microsoft credentials on a random verification page. Never share authentication codes, session cookies or recovery keys. Legitimate giveaways do not need your password. Report suspicious verification links to staff."
+  };
+  for(const [name,text] of Object.entries(info)) if(made[name]) await made[name].send(text).catch(()=>{});
+  if(mode==="mcfa-giveaways"){
+    const keep=new Set(["📌・START HERE","🎁・MCFA GIVEAWAYS","🛡️・SAFETY & SUPPORT","🔒・STAFF ONLY"]);
+    for(const [catName] of Object.entries(layout)) if(!keep.has(catName)){
+      const category=guild.channels.cache.find(x=>x.name===catName&&x.type===ChannelType.GuildCategory);
+      if(category)for(const ch of category.children.cache.values())await ch.delete().catch(()=>{});
+      if(category&&category.children.cache.size===0)await category.delete().catch(()=>{});
+    }
+  }
+  return Object.values(layout).reduce((n,x)=>n+x.length,0);
+}
+
+const command=new SlashCommandBuilder().setName("setup").setDescription("Choose what to install").addStringOption(o=>o.setName("type").setDescription("Setup type").setRequired(true).addChoices({name:"🛒 Trading / Marketplace",value:"trading"},{name:"💻 Developer / Plugins",value:"developer"},{name:"🚀 Full SMP + Trading + Developer",value:"full"},{name:"🎁 MCFA Giveaways",value:"mcfa-giveaways"},{name:"🌐 MCFA Big Community",value:"mcfa-community"},{name:"👑 Full MCFA Community + Giveaways",value:"mcfa-full"})).setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 const extraCommands=[
 new SlashCommandBuilder().setName("roles").setDescription("Show role panels"),
 new SlashCommandBuilder().setName("market").setDescription("Marketplace help"),
@@ -143,7 +191,7 @@ async function inviteStats(guild,user){
  return [...inv.values()].filter(x=>x.inviter?.id===user.id).reduce((n,x)=>n+(x.uses||0),0);
 }
 client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token);await rest.put(Routes.applicationCommands(clientId),{body:[command.toJSON(),...extraCommands.map(x=>x.toJSON())]});console.log("Online:",client.user.tag,"• Global commands registered");for(const g of client.guilds.cache.values())refreshInvites(g);animateRoles();setInterval(animateRoles,180000);const run=async()=>{for(const g of client.guilds.cache.values()){try{const r=await scanDeals(g);if(r.sent)console.log("Web deal scanner:",r.sent,"new deals");}catch(e){console.error("Web deal scanner:",e.message)}}};run();setInterval(run,DEAL_SCAN_SECONDS*1000)});
-client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{const type=i.options.getString("type");if(type==="full"){await setup(i.guild);await ensureServerIcon(i.guild);await installMode(i.guild,"trading");await installMode(i.guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(i.guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error(e);await i.editReply("❌ Setup failed: "+e.message)}}if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{await resetBotStructure(i.guild);await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Bot-managed server structure reset and rebuilt. Existing unrelated channels/roles were left untouched.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
+client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{const type=i.options.getString("type");if(type==="mcfa-full"||type==="mcfa-community"||type==="mcfa-giveaways"){const n=await setupMCFA(i.guild,type);await ensureServerIcon(i.guild);await i.editReply("🎁 MCFA setup complete — created/checked "+n+" channels across giveaway, community and safety sections.");}else if(type==="full"){await setup(i.guild);await ensureServerIcon(i.guild);await installMode(i.guild,"trading");await installMode(i.guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(i.guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error(e);await i.editReply("❌ Setup failed: "+e.message)}}if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{await resetBotStructure(i.guild);await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Bot-managed server structure reset and rebuilt. Existing unrelated channels/roles were left untouched.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
 if(i.commandName==="roles")await i.reply({content:"🎭 Go to #🎭・roles and react to the panels.",ephemeral:true});if(i.commandName==="market")await i.reply({content:"🛒 Marketplace is ready: use the Item Market forums for selling, buying, trades, rare items, bulk items and deals.",ephemeral:true});if(i.commandName==="dev")await i.reply({content:"💻 Developer hub is ready: Java, Paper, Spigot, Velocity, code review, plugin showcase and bug reports.",ephemeral:true});
 if(i.commandName==="help")await i.reply({content:"🛒 **Market:** /market /deal-scan\n💱 **Trading:** /invite\n🛡️ **Moderation:** /lock /unlock /announce\n🎫 **Support:** /ticket /close-ticket\n🔧 **Utility:** /ping /serverinfo /roles /dev",ephemeral:true});
 if(i.commandName==="ping")await i.reply("🏓 Pong! "+client.ws.ping+"ms");
