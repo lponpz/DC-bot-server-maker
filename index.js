@@ -95,6 +95,7 @@ async function setupMCFA(guild,mode="mcfa-full"){
 
 const command=new SlashCommandBuilder().setName("setup").setDescription("Choose what to install").addStringOption(o=>o.setName("type").setDescription("Setup type").setRequired(true).addChoices({name:"🛒 Trading / Marketplace",value:"trading"},{name:"💻 Developer / Plugins",value:"developer"},{name:"🚀 Full SMP + Trading + Developer",value:"full"},{name:"🎁 MCFA Giveaways",value:"mcfa-giveaways"},{name:"🌐 MCFA Big Community",value:"mcfa-community"},{name:"👑 Full MCFA Community + Giveaways",value:"mcfa-full"})).setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 const extraCommands=[
+new SlashCommandBuilder().setName("mcfa-giveaway").setDescription("Start an MCFA/community giveaway with an entry button").addStringOption(o=>o.setName("prize").setDescription("Prize you are authorized to give away").setRequired(true)).addIntegerOption(o=>o.setName("minutes").setDescription("Duration in minutes (1-10080)").setRequired(true).setMinValue(1).setMaxValue(10080)).addIntegerOption(o=>o.setName("winners").setDescription("Number of winners (1-10)").setRequired(false).setMinValue(1).setMaxValue(10)).setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 new SlashCommandBuilder().setName("roles").setDescription("Show role panels"),
 new SlashCommandBuilder().setName("market").setDescription("Marketplace help"),
 new SlashCommandBuilder().setName("dev").setDescription("Developer hub help"),
@@ -176,6 +177,7 @@ async function scanDeals(guild){
 }
 
 const inviteCache=new Map();
+const giveawayEntries=new Map();
 async function refreshInvites(guild){try{const invites=await guild.invites.fetch();inviteCache.set(guild.id,new Map(invites.map(x=>[x.code,x.uses||0])))}catch(e){console.error("Invite cache:",e.message)}}
 client.on("guildMemberAdd",async member=>{
  try{
@@ -192,6 +194,25 @@ async function inviteStats(guild,user){
 }
 client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token);await rest.put(Routes.applicationCommands(clientId),{body:[command.toJSON(),...extraCommands.map(x=>x.toJSON())]});console.log("Online:",client.user.tag,"• Global commands registered");for(const g of client.guilds.cache.values())refreshInvites(g);animateRoles();setInterval(animateRoles,180000);const run=async()=>{for(const g of client.guilds.cache.values()){try{const r=await scanDeals(g);if(r.sent)console.log("Web deal scanner:",r.sent,"new deals");}catch(e){console.error("Web deal scanner:",e.message)}}};run();setInterval(run,DEAL_SCAN_SECONDS*1000)});
 client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{const type=i.options.getString("type");if(type==="mcfa-full"||type==="mcfa-community"||type==="mcfa-giveaways"){const n=await setupMCFA(i.guild,type);await ensureServerIcon(i.guild);await i.editReply("🎁 MCFA setup complete — created/checked "+n+" channels across giveaway, community and safety sections.");}else if(type==="full"){await setup(i.guild);await ensureServerIcon(i.guild);await installMode(i.guild,"trading");await installMode(i.guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(i.guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error(e);await i.editReply("❌ Setup failed: "+e.message)}}if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{await resetBotStructure(i.guild);await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Bot-managed server structure reset and rebuilt. Existing unrelated channels/roles were left untouched.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
+if(i.commandName==="mcfa-giveaway"){
+ await i.deferReply({ephemeral:true});
+ const prize=i.options.getString("prize"), minutes=i.options.getInteger("minutes"), winners=i.options.getInteger("winners")||1;
+ const endAt=Date.now()+minutes*60000, giveawayId=Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+ const target=i.channel;
+ const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("mcfa_enter:"+giveawayId).setLabel("Enter Giveaway").setEmoji("🎁").setStyle(ButtonStyle.Success));
+ const embed=new EmbedBuilder().setTitle("🎁 MCFA COMMUNITY GIVEAWAY").setDescription("**Prize:** "+prize+"\n**Host:** "+i.user+"\n**Winners:** "+winners+"\n**Entries:** 0\n\nPress 🎁 Enter Giveaway to participate.").addFields({name:"⏰ Ends",value:"<t:"+Math.floor(endAt/1000)+":R>",inline:true},{name:"🛡️ Safety",value:"Never share passwords, session cookies, or Microsoft verification codes.",inline:true}).setColor(0x2ECC71).setTimestamp();
+ const post=await target.send({embeds:[embed],components:[row]});
+ giveawayEntries.set(giveawayId,{guildId:i.guildId,channelId:target.id,messageId:post.id,prize,winners,endAt,users:new Set(),ended:false});
+ await i.editReply("✅ Giveaway posted: "+post.url);
+ setTimeout(async()=>{
+  const data=giveawayEntries.get(giveawayId); if(!data||data.ended)return; data.ended=true;
+  const entrants=[...data.users];
+  const chosen=[];
+  while(entrants.length&&chosen.length<data.winners){const idx=Math.floor(Math.random()*entrants.length);chosen.push(entrants.splice(idx,1)[0]);}
+  const ch=await client.channels.fetch(data.channelId).catch(()=>null);
+  if(ch){const msg=await ch.messages.fetch(data.messageId).catch(()=>null);if(msg)await msg.edit({components:[]}).catch(()=>{});await ch.send(chosen.length?"🏆 Giveaway ended! Prize: **"+data.prize+"**\nWinner(s): "+chosen.map(id=>"<@"+id+">").join(", "):"🎁 Giveaway ended, but there were no entries.");}
+ },minutes*60000);
+}
 if(i.commandName==="roles")await i.reply({content:"🎭 Go to #🎭・roles and react to the panels.",ephemeral:true});if(i.commandName==="market")await i.reply({content:"🛒 Marketplace is ready: use the Item Market forums for selling, buying, trades, rare items, bulk items and deals.",ephemeral:true});if(i.commandName==="dev")await i.reply({content:"💻 Developer hub is ready: Java, Paper, Spigot, Velocity, code review, plugin showcase and bug reports.",ephemeral:true});
 if(i.commandName==="help")await i.reply({content:"🛒 **Market:** /market /deal-scan\n💱 **Trading:** /invite\n🛡️ **Moderation:** /lock /unlock /announce\n🎫 **Support:** /ticket /close-ticket\n🔧 **Utility:** /ping /serverinfo /roles /dev",ephemeral:true});
 if(i.commandName==="ping")await i.reply("🏓 Pong! "+client.ws.ping+"ms");
@@ -255,6 +276,7 @@ client.once("ready",async()=>{
 });
 client.on("interactionCreate",async i=>{
   if(!i.isButton())return;
+  if(i.customId.startsWith("mcfa_enter:")){const id=i.customId.slice("mcfa_enter:".length);const data=giveawayEntries.get(id);if(!data||data.ended)return i.reply({content:"This giveaway has ended or is unavailable.",ephemeral:true});if(data.users.has(i.user.id)){data.users.delete(i.user.id);return i.reply({content:"You left the giveaway.",ephemeral:true});}data.users.add(i.user.id);await i.reply({content:"🎁 You entered the giveaway! Reacting again is not required.",ephemeral:true});const ch=await client.channels.fetch(data.channelId).catch(()=>null);const msg=ch?await ch.messages.fetch(data.messageId).catch(()=>null):null;if(msg){const old=msg.embeds[0];if(old){const updated=EmbedBuilder.from(old).setDescription("**Prize:** "+data.prize+"\n**Host:** giveaway host\n**Winners:** "+data.winners+"\n**Entries:** "+data.users.size+"\n\nPress 🎁 Enter Giveaway to join or leave.");await msg.edit({embeds:[updated]}).catch(()=>{});}}return;}
   if(i.customId.startsWith("aio_ticket:")){
     const type=i.customId.split(":")[1];
     try{const ch=await allInOneTicket(i.guild,i.user,type);await i.reply({content:"🎫 Ticket: "+ch,ephemeral:true});}
