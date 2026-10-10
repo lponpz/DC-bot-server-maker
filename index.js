@@ -6,7 +6,7 @@ const DEAL_DISCOUNT_PERCENT=Math.max(5,Number(process.env.DEAL_DISCOUNT_PERCENT|
 const DEAL_SCAN_SECONDS=Math.max(30,Number(process.env.DEAL_SCAN_SECONDS||60));
 const DEAL_SCAN_PAGES=Math.max(1,Math.min(20,Number(process.env.DEAL_SCAN_PAGES||10)));
 if(!token||!clientId) throw new Error("Set DISCORD_TOKEN and CLIENT_ID in .env");
-const minecraftPanelDataPath=path.join(__dirname,"minecraft-panel-data.json");
+const minecraftPanelDataPath=require("node:path").join(__dirname,"minecraft-panel-data.json");
 let minecraftPanelData={};
 try{minecraftPanelData=JSON.parse(fs.readFileSync(minecraftPanelDataPath,"utf8"));}catch{}
 function saveMinecraftPanelData(){fs.writeFileSync(minecraftPanelDataPath,JSON.stringify(minecraftPanelData,null,2));}
