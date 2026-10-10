@@ -47,19 +47,37 @@ async function animateRoles(){
  }
 }
 async function resetBotStructure(g){
- await g.channels.fetch();
- const all=[...g.channels.cache.values()];
- const failures=[];
- // Delete every channel first, then every category, so category parents become empty.
- const children=all.filter(ch=>ch.type!==ChannelType.GuildCategory);
- const categories=all.filter(ch=>ch.type===ChannelType.GuildCategory);
- for(const ch of [...children,...categories]){
-  try{await ch.delete("Full server channel/category reset requested by administrator");}
-  catch(e){failures.push(ch.name+": "+e.message);console.error("Could not delete channel/category "+ch.name+": "+e.message);}
+ const deletedIds=new Set(), failures=new Map();
+ // Re-fetch each pass so cached or newly visible channels aren't silently skipped.
+ // Parallel batches are faster while leaving room for Discord API rate limits.
+ for(let pass=0;pass<5;pass++){
+  await g.channels.fetch();
+  const children=[...g.channels.cache.values()].filter(ch=>ch.type!==ChannelType.GuildCategory&&!deletedIds.has(ch.id));
+  if(!children.length)break;
+  for(let i=0;i<children.length;i+=5){
+   await Promise.all(children.slice(i,i+5).map(async ch=>{
+    try{await ch.delete("Administrator requested full channel reset");deletedIds.add(ch.id);failures.delete(ch.id);}
+    catch(e){failures.set(ch.id,ch.name+": "+e.message);console.error("Could not delete "+ch.name+": "+e.message);}
+   }));
+  }
  }
- if(failures.length)throw new Error("Could not delete "+failures.length+" channel(s)/category(s). Check bot Manage Channels permission and role hierarchy. Examples: "+failures.slice(0,5).join(" | "));
+ // Delete categories after channels; repeat to catch categories left behind by earlier failures.
+ for(let pass=0;pass<3;pass++){
+  await g.channels.fetch();
+  const categories=[...g.channels.cache.values()].filter(ch=>ch.type===ChannelType.GuildCategory&&!deletedIds.has(ch.id));
+  if(!categories.length)break;
+  for(let i=0;i<categories.length;i+=5){
+   await Promise.all(categories.slice(i,i+5).map(async ch=>{
+    try{await ch.delete("Administrator requested full category reset");deletedIds.add(ch.id);failures.delete(ch.id);}
+    catch(e){failures.set(ch.id,ch.name+": "+e.message);console.error("Could not delete category "+ch.name+": "+e.message);}
+   }));
+  }
+ }
  await g.channels.fetch();
- return {deleted:all.length};
+ const remaining=[...g.channels.cache.values()];
+ const remainingNames=remaining.map(ch=>ch.name+": "+(failures.get(ch.id)||"Discord did not allow deletion"));
+ if(remaining.length)throw new Error("Deleted "+deletedIds.size+" channel(s)/category(ies), but "+remaining.length+" remain: "+remainingNames.slice(0,8).join(" | ")+". Check Manage Channels permission, bot role position, and Discord system/community channel restrictions.");
+ return {deleted:deletedIds.size};
 }
 async function ensureServerIcon(g){if(g.icon)return false;try{const png=makeSmpIconPng();await g.setIcon(png,"Automatic SMP marketplace icon");return true}catch(e){console.error("Server icon:",e.message);return false;}}
 function makeSmpIconPng(){const zlib=require("zlib");const w=256,h=256;const raw=[];for(let y=0;y<h;y++){raw.push(0);for(let x=0;x<w;x++){const dx=x-128,dy=y-128,d=Math.sqrt(dx*dx+dy*dy);let rr=18,gg=25,bb=38;if(d<112){rr=46;gg=204;bb=113;}if(d<88){rr=24;gg=32;bb=48;}if((x>48&&x<208&&y>96&&y<160)||(x>112&&x<144&&y>52&&y<204)){rr=46;gg=204;bb=113;}raw.push(rr,gg,bb,255);}}const crc32=b=>{let c=0xffffffff;for(const n of b){c^=n;for(let k=0;k<8;k++)c=(c>>>1)^(0xedb88320&-(c&1));}return (c^0xffffffff)>>>0};const chunk=(type,data)=>{const t=Buffer.from(type);const d=Buffer.from(data);const out=Buffer.alloc(12+d.length);out.writeUInt32BE(d.length,0);t.copy(out,4);d.copy(out,8);out.writeUInt32BE(crc32(Buffer.concat([t,d])),8+d.length);return out};const sig=Buffer.from([137,80,78,71,13,10,26,10]);const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(w,0);ihdr.writeUInt32BE(h,4);ihdr[8]=8;ihdr[9]=6;const idat=zlib.deflateSync(Buffer.from(raw));return Buffer.concat([sig,chunk("IHDR",ihdr),chunk("IDAT",idat),chunk("IEND",Buffer.alloc(0))]);}
@@ -263,7 +281,8 @@ new SlashCommandBuilder().setName("tts-say").setDescription("Speak text aloud in
 new SlashCommandBuilder().setName("tts-autoread").setDescription("Toggle reading this text channel into voice chat").addBooleanOption(o=>o.setName("enabled").setDescription("Enable or disable auto-read").setRequired(true)),
 new SlashCommandBuilder().setName("tts-language").setDescription("Choose TTS language").addStringOption(o=>o.setName("language").setDescription("Voice language").setRequired(true).addChoices({name:"Hindi",value:"hi"},{name:"Urdu",value:"ur"},{name:"English",value:"en"})),
 new SlashCommandBuilder().setName("mc-name").setDescription("Save or view your Minecraft Java username").addStringOption(o=>o.setName("username").setDescription("Your Minecraft username; leave blank to view saved name").setRequired(false).setMinLength(3).setMaxLength(16)),
-new SlashCommandBuilder().setName("mc-panel").setDescription("Post the Minecraft control panel with interactive buttons").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+new SlashCommandBuilder().setName("mc-panel").setDescription("Post the Minecraft control panel with interactive buttons").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+new SlashCommandBuilder().setName("mc-build").setDescription("Minecraft build planner (does not place blocks by itself)").addStringOption(o=>o.setName("action").setDescription("Choose a build-planning action").setRequired(true).addChoices({name:"Status",value:"status"},{name:"Set build origin",value:"origin"},{name:"Pause plan",value:"pause"},{name:"Resume plan",value:"resume"})).addIntegerOption(o=>o.setName("x").setDescription("Origin X coordinate").setRequired(false).setMinValue(-30000000).setMaxValue(30000000)).addIntegerOption(o=>o.setName("y").setDescription("Origin Y coordinate").setRequired(false).setMinValue(-2048).setMaxValue(2048)).addIntegerOption(o=>o.setName("z").setDescription("Origin Z coordinate").setRequired(false).setMinValue(-30000000).setMaxValue(30000000))
 ];
 
 
@@ -434,7 +453,21 @@ client.on("interactionCreate",async i=>{
   if(action==="safety")return i.reply({content:"🛡️ **Safety & limits**\nThis panel does not bypass anti-cheat, login protections, AFK rules, or access controls. Automated movement/building should only be enabled on servers you own or are explicitly authorized to automate.",ephemeral:true});
  }catch(e){console.error("Minecraft panel button:",e);if(!i.replied&&!i.deferred)return i.reply({content:"Could not complete that action: "+String(e.message||e).slice(0,250),ephemeral:true});}
 });
-client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="mc-name"){if(!i.guildId)return i.reply({content:"Use this command inside a Discord server.",ephemeral:true});const file=require("node:path").join(__dirname,"minecraft-names.json");let names={};try{names=JSON.parse(fs.readFileSync(file,"utf8"));}catch{}const key=i.guildId+":"+i.user.id;const username=i.options.getString("username")?.trim();if(username){if(!/^[A-Za-z0-9_]{3,16}$/.test(username))return i.reply({content:"Minecraft Java username must be 3–16 characters: letters, numbers, underscore.",ephemeral:true});names[key]={username,updatedAt:new Date().toISOString()};fs.writeFileSync(file,JSON.stringify(names,null,2));return i.reply({content:"✅ Minecraft name saved: **"+username+"**. It is linked to your Discord user only; this does not log into Minecraft.",ephemeral:true});}return i.reply({content:names[key]?"🎮 Your saved Minecraft name: **"+names[key].username+"**":"No Minecraft name saved yet. Use `/mc-name username:YourIGN`.",ephemeral:true});}if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{if(!i.guildId)return i.editReply("❌ Use /setup inside your Discord server, not in DMs.");const guild=i.guild||await client.guilds.fetch(i.guildId);if(!guild||!guild.channels||!guild.roles)return i.editReply("❌ I could not access this server. Please restart the bot and try again.");await guild.channels.fetch();await guild.roles.fetch();const type=i.options.getString("type");if(type==="mcfa-full"||type==="mcfa-community"||type==="mcfa-giveaways"){const n=await setupMCFA(guild,type);await ensureServerIcon(guild);await i.editReply("🎁 MCFA setup complete — created/checked "+n+" channels across giveaway, community and safety sections.");}else if(["hosting","smp","pvp","network","creator","events","lifesteal-public","lifesteal-competitive","lifesteal-hardcore","lifesteal-crystal","lifesteal-seasonal","skyblock","prison"].includes(type)){const n=await setupTemplate(guild,type);await ensureServerIcon(guild);await i.editReply("✅ "+type.toUpperCase()+" template installed! Created/checked "+n+" channels. You can customize names and permissions anytime.");}else if(type==="full"){await setup(guild);await ensureServerIcon(guild);await installMode(guild,"trading");await installMode(guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error("Setup failed:",e);await i.editReply("❌ Setup failed: "+(e?.message||"Unknown error")+". Check bot server access and permissions.");}}if(i.commandName==="add-emoji"){await i.deferReply({ephemeral:true});try{
+client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="mc-build"){
+ if(!i.guildId)return i.reply({content:"Use this command inside a Discord server.",ephemeral:true});
+ const file=require("node:path").join(__dirname,"minecraft-panel-data.json");let data={};try{data=JSON.parse(fs.readFileSync(file,"utf8"));}catch{}
+ const g=data[i.guildId]||(data[i.guildId]={version:"1.21.11",buildStatus:"ready",savedProgress:null});
+ const action=i.options.getString("action");
+ if(action==="origin"){
+  const x=i.options.getInteger("x"),y=i.options.getInteger("y"),z=i.options.getInteger("z");
+  if(x===null||y===null||z===null)return i.reply({content:"❌ Set all coordinates: /mc-build action:Set build origin x:<X> y:<Y> z:<Z>",ephemeral:true});
+  g.buildOrigin={x,y,z};g.buildStatus="ready";fs.writeFileSync(file,JSON.stringify(data,null,2));
+  return i.reply({content:"📍 Build origin saved: **"+x+", "+y+", "+z+"** for Minecraft version **"+g.version+"**. This is a plan only; it has not placed any blocks.",ephemeral:true});
+ }
+ if(action==="pause"){g.buildStatus="paused";fs.writeFileSync(file,JSON.stringify(data,null,2));return i.reply({content:"⏸️ Build plan paused. No live Minecraft connection is attached.",ephemeral:true});}
+ if(action==="resume"){g.buildStatus="ready";fs.writeFileSync(file,JSON.stringify(data,null,2));return i.reply({content:"▶️ Build plan marked ready. This resumes planning only; it does not start placing blocks.",ephemeral:true});}
+ return i.reply({content:"🧱 **Minecraft Build Planner**\nVersion: "+g.version+"\nPlan status: "+g.buildStatus+"\nOrigin: "+(g.buildOrigin?[g.buildOrigin.x,g.buildOrigin.y,g.buildOrigin.z].join(", "):"not set")+"\n\n⚠️ This Discord bot currently has no Minecraft server/mod connection, so it cannot place blocks yet. Real building needs a server plugin/mod or authenticated bridge connected to your Minecraft world.",ephemeral:true});
+}if(i.commandName==="mc-name"){if(!i.guildId)return i.reply({content:"Use this command inside a Discord server.",ephemeral:true});const file=require("node:path").join(__dirname,"minecraft-names.json");let names={};try{names=JSON.parse(fs.readFileSync(file,"utf8"));}catch{}const key=i.guildId+":"+i.user.id;const username=i.options.getString("username")?.trim();if(username){if(!/^[A-Za-z0-9_]{3,16}$/.test(username))return i.reply({content:"Minecraft Java username must be 3–16 characters: letters, numbers, underscore.",ephemeral:true});names[key]={username,updatedAt:new Date().toISOString()};fs.writeFileSync(file,JSON.stringify(names,null,2));return i.reply({content:"✅ Minecraft name saved: **"+username+"**. It is linked to your Discord user only; this does not log into Minecraft.",ephemeral:true});}return i.reply({content:names[key]?"🎮 Your saved Minecraft name: **"+names[key].username+"**":"No Minecraft name saved yet. Use `/mc-name username:YourIGN`.",ephemeral:true});}if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{if(!i.guildId)return i.editReply("❌ Use /setup inside your Discord server, not in DMs.");const guild=i.guild||await client.guilds.fetch(i.guildId);if(!guild||!guild.channels||!guild.roles)return i.editReply("❌ I could not access this server. Please restart the bot and try again.");await guild.channels.fetch();await guild.roles.fetch();const type=i.options.getString("type");if(type==="mcfa-full"||type==="mcfa-community"||type==="mcfa-giveaways"){const n=await setupMCFA(guild,type);await ensureServerIcon(guild);await i.editReply("🎁 MCFA setup complete — created/checked "+n+" channels across giveaway, community and safety sections.");}else if(["hosting","smp","pvp","network","creator","events","lifesteal-public","lifesteal-competitive","lifesteal-hardcore","lifesteal-crystal","lifesteal-seasonal","skyblock","prison"].includes(type)){const n=await setupTemplate(guild,type);await ensureServerIcon(guild);await i.editReply("✅ "+type.toUpperCase()+" template installed! Created/checked "+n+" channels. You can customize names and permissions anytime.");}else if(type==="full"){await setup(guild);await ensureServerIcon(guild);await installMode(guild,"trading");await installMode(guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error("Setup failed:",e);await i.editReply("❌ Setup failed: "+(e?.message||"Unknown error")+". Check bot server access and permissions.");}}if(i.commandName==="add-emoji"){await i.deferReply({ephemeral:true});try{
  if(!i.guild)throw new Error("Use this command inside your server.");
  if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))throw new Error("You need Manage Server permission.");
  const name=i.options.getString("name").toLowerCase();
