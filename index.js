@@ -6,7 +6,7 @@ const DEAL_DISCOUNT_PERCENT=Math.max(5,Number(process.env.DEAL_DISCOUNT_PERCENT|
 const DEAL_SCAN_SECONDS=Math.max(30,Number(process.env.DEAL_SCAN_SECONDS||60));
 const DEAL_SCAN_PAGES=Math.max(1,Math.min(20,Number(process.env.DEAL_SCAN_PAGES||10)));
 if(!token||!clientId) throw new Error("Set DISCORD_TOKEN and CLIENT_ID in .env");
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.GuildMessageReactions,GatewayIntentBits.GuildInvites,GatewayIntentBits.GuildMembers]});
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildMessageReactions,GatewayIntentBits.GuildInvites,GatewayIntentBits.GuildMembers]});
 const roles=[
 ["👑 Owner",0xF1C40F,true],["🛡️ Administrator",0xE74C3C,true],["🔨 Senior Moderator",0xE67E22,true],["🛡️ Moderator",0x3498DB,true],["🤖 Bot",0x5865F2,true],
 ["👑 SMP Owner",0xF1C40F,true],["🛡️ SMP Staff",0xE74C3C,true],["💎 VIP Trader",0x9B59B6,true],["⭐ Trusted Trader",0xF1C40F,true],["🏪 Verified Seller",0x2ECC71,true],["🛒 Seller",0x27AE60,false],["💰 Buyer",0x3498DB,false],["🔄 Trader",0xF39C12,false],["💎 Collector",0x00CEC9,false],["🔥 Flipper",0xE17055,false],["💻 Developer",0x5865F2,true],["☕ Java Developer",0xE67E22,false],["🧩 Paper Developer",0x2ECC71,false],["⚡ Velocity Developer",0x9B59B6,false],["🧪 Tester",0xE84393,false],["🎨 Designer",0x00B894,false],["🐛 Bug Hunter",0xD63031,false],["📦 Plugin Creator",0x0984E3,false],["🏆 Contributor",0x6C5CE7,false],["🌟 Community Member",0x95A5A6,false],["✨ New Member",0x7F8C8D,false]
@@ -269,8 +269,54 @@ new SlashCommandBuilder().setName("untimeout").setDescription("Remove a member t
 new SlashCommandBuilder().setName("kick").setDescription("Kick a member").addUserOption(o=>o.setName("member").setDescription("Member to kick").setRequired(true)).addStringOption(o=>o.setName("reason").setDescription("Reason").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
 new SlashCommandBuilder().setName("ban").setDescription("Ban a member").addUserOption(o=>o.setName("member").setDescription("Member to ban").setRequired(true)).addStringOption(o=>o.setName("reason").setDescription("Reason").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 new SlashCommandBuilder().setName("userinfo").setDescription("Show member information").addUserOption(o=>o.setName("member").setDescription("Member to inspect").setRequired(false)),
-new SlashCommandBuilder().setName("nickname").setDescription("Change a member nickname").addUserOption(o=>o.setName("member").setDescription("Member").setRequired(true)).addStringOption(o=>o.setName("name").setDescription("New nickname (blank not allowed)").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageNicknames)
+new SlashCommandBuilder().setName("nickname").setDescription("Change a member nickname").addUserOption(o=>o.setName("member").setDescription("Member").setRequired(true)).addStringOption(o=>o.setName("name").setDescription("New nickname (blank not allowed)").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageNicknames),
+new SlashCommandBuilder().setName("tts-join").setDescription("Join your current voice channel and stay connected 24/7"),
+new SlashCommandBuilder().setName("tts-leave").setDescription("Disconnect the TTS bot from voice"),
+new SlashCommandBuilder().setName("tts-say").setDescription("Speak text aloud in voice chat").addStringOption(o=>o.setName("text").setDescription("Text to speak").setRequired(true).setMaxLength(220)),
+new SlashCommandBuilder().setName("tts-autoread").setDescription("Toggle reading this text channel into voice chat").addBooleanOption(o=>o.setName("enabled").setDescription("Enable or disable auto-read").setRequired(true)),
+new SlashCommandBuilder().setName("tts-language").setDescription("Choose TTS language").addStringOption(o=>o.setName("language").setDescription("Voice language").setRequired(true).addChoices({name:"Hindi",value:"hi"},{name:"Urdu",value:"ur"},{name:"English",value:"en"}))
 ];
+
+
+/* Hindi/Urdu TTS + persistent 24/7 voice connections */
+const path=require("path");
+let voiceLib;
+try {
+ const ffmpegPath=require("ffmpeg-static");
+ if(ffmpegPath)process.env.PATH=path.dirname(ffmpegPath)+path.delimiter+(process.env.PATH||"");
+ voiceLib=require("@discordjs/voice");
+} catch(e) { console.error("Voice dependencies unavailable:",e.message); }
+const ttsSettingsPath=path.join(__dirname,"tts-settings.json");
+let ttsSettings={};
+try { ttsSettings=JSON.parse(fs.readFileSync(ttsSettingsPath,"utf8")); } catch {}
+const voiceStates=new Map();
+function saveTtsSettings(){try{fs.writeFileSync(ttsSettingsPath,JSON.stringify(ttsSettings,null,2));}catch(e){console.error("Could not save TTS settings:",e.message);}}
+function getTtsSettings(guildId){if(!ttsSettings[guildId])ttsSettings[guildId]={autoRead:false,language:"hi",textChannelId:null,voiceChannelId:null,stay24_7:true};return ttsSettings[guildId];}
+async function connectTtsVoice(channel,stay=true){
+ if(!voiceLib)throw new Error("Voice packages unavailable. Run npm install and restart.");
+ const {joinVoiceChannel,VoiceConnectionStatus,entersState,createAudioPlayer,NoSubscriberBehavior}=voiceLib;
+ const old=voiceStates.get(channel.guild.id);if(old?.connection){try{old.connection.destroy();}catch{}}
+ const connection=joinVoiceChannel({channelId:channel.id,guildId:channel.guild.id,adapterCreator:channel.guild.voiceAdapterCreator,selfDeaf:true,selfMute:false});
+ const player=createAudioPlayer({behaviors:{noSubscriber:NoSubscriberBehavior.Pause}});connection.subscribe(player);
+ const state={connection,player,stay,channelId:channel.id,queue:[],speaking:false};voiceStates.set(channel.guild.id,state);
+ connection.on(VoiceConnectionStatus.Disconnected,async()=>{
+  if(!state.stay)return;
+  try{await Promise.race([entersState(connection,VoiceConnectionStatus.Signalling,5000),entersState(connection,VoiceConnectionStatus.Connecting,5000)]);}
+  catch{try{connection.destroy();}catch{}if(state.stay)setTimeout(async()=>{const c=await channel.guild.channels.fetch(state.channelId).catch(()=>null);if(c?.isVoiceBased())connectTtsVoice(c,true).catch(e=>console.error("Voice reconnect:",e.message));},3000);}
+ });
+ connection.on("error",e=>console.error("Voice connection:",e.message));return state;
+}
+async function sayTts(guildId,textToSay,language){
+ const state=voiceStates.get(guildId);if(!state)throw new Error("Pehle /tts-join se voice channel join karo.");
+ const clean=String(textToSay||"").replace(/https?:\\/\\/\\S+/gi," link ").replace(/<@!?\\d+>|<@&\\d+>|<#\\d+>/g,"").slice(0,220).trim();if(!clean)return;
+ state.queue.push({text:clean,language:language||getTtsSettings(guildId).language||"hi"});if(state.speaking)return;state.speaking=true;
+ try{while(state.queue.length){const item=state.queue.shift();const lang=item.language==="ur"?"ur":item.language==="en"?"en":"hi";
+  const url=require("google-tts-api").getAudioUrl(item.text,{lang,slow:false,host:"https://translate.google.com"});
+  const resource=voiceLib.createAudioResource(url);state.player.play(resource);
+  await voiceLib.entersState(state.player,voiceLib.AudioPlayerStatus.Playing,10000).catch(()=>{});
+  await voiceLib.entersState(state.player,voiceLib.AudioPlayerStatus.Idle,Math.max(15000,item.text.length*180)).catch(()=>{});
+ }}finally{state.speaking=false;}
+}
 
 const dealSeen=new Map();
 
@@ -524,3 +570,42 @@ async function scanDeals(guild){
   for(const [k,t] of dealSeen)if(Date.now()-t>6*60*60*1000)dealSeen.delete(k);
   return {sent,total:deals.length};
 }
+
+client.on("interactionCreate",async i=>{
+ if(!i.isChatInputCommand()||!i.guild)return;
+ const settings=getTtsSettings(i.guildId);
+ try{
+  if(i.commandName==="tts-join"){
+   const channel=i.member?.voice?.channel;if(!channel)return i.reply({content:"Pehle kisi voice channel mein join karo.",ephemeral:true});
+   await connectTtsVoice(channel,true);settings.voiceChannelId=channel.id;settings.stay24_7=true;saveTtsSettings();
+   return i.reply({content:"🎙️ Joined "+channel+" • 24/7 reconnect enabled. Use /tts-say to test.",ephemeral:true});
+  }
+  if(i.commandName==="tts-leave"){
+   const state=voiceStates.get(i.guildId);if(state){state.stay=false;state.connection.destroy();voiceStates.delete(i.guildId);}
+   settings.voiceChannelId=null;settings.stay24_7=false;saveTtsSettings();return i.reply({content:"👋 Voice disconnected. Use /tts-join to reconnect.",ephemeral:true});
+  }
+  if(i.commandName==="tts-say"){
+   await i.deferReply({ephemeral:true});await sayTts(i.guildId,i.options.getString("text"),settings.language);return i.editReply("🗣️ Added to the voice queue.");
+  }
+  if(i.commandName==="tts-autoread"){
+   settings.autoRead=i.options.getBoolean("enabled");settings.textChannelId=settings.autoRead?i.channelId:null;saveTtsSettings();
+   return i.reply({content:settings.autoRead?"🔊 Auto-read enabled for this channel. Bot must be in voice via /tts-join.":"🔇 Auto-read disabled.",ephemeral:true});
+  }
+  if(i.commandName==="tts-language"){
+   settings.language=i.options.getString("language");saveTtsSettings();return i.reply({content:"🌐 TTS language set to **"+settings.language+"**.",ephemeral:true});
+  }
+ }catch(e){console.error("TTS command:",e);const message="❌ TTS error: "+(e.message||"Unknown error");if(i.deferred||i.replied)return i.followUp({content:message,ephemeral:true}).catch(()=>{});return i.reply({content:message,ephemeral:true}).catch(()=>{});}
+});
+client.on("messageCreate",async message=>{
+ if(!message.guild||message.author.bot)return;const settings=getTtsSettings(message.guild.id);
+ if(!settings.autoRead||message.channelId!==settings.textChannelId||!voiceStates.has(message.guild.id))return;
+ try{await sayTts(message.guild.id,message.content,settings.language);}catch(e){console.error("TTS auto-read:",e.message);}
+});
+client.once("ready",async()=>{
+ for(const [guildId,settings] of Object.entries(ttsSettings)){
+  if(!settings.stay24_7||!settings.voiceChannelId)continue;
+  const guild=await client.guilds.fetch(guildId).catch(()=>null);if(!guild)continue;
+  const channel=await guild.channels.fetch(settings.voiceChannelId).catch(()=>null);
+  if(channel?.isVoiceBased())connectTtsVoice(channel,true).catch(e=>console.error("Saved voice reconnect:",e.message));
+ }
+});
