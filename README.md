@@ -18,6 +18,7 @@ npm start
 - Minecraft Java status: !mcset host, !mcstatus
 - AI: !ai question, !image prompt (requires API key and model access)
 - Community: !level, !poll Question | A | B, !giveaway minutes prize
+- Schematics: attach a `.litematic` or `.schem` file and run `!schematic`; buttons show material summary and saved build coordinates. Use `!buildcoords X Y Z` to save an origin. The module currently analyses/plans only; it does not automate public-server building or AFK farming.
 - !help lists commands. Existing slash commands, server templates, tickets, role panels, moderation and marketplace scanner are preserved.
 
 ## Discord setup
