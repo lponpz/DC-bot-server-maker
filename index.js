@@ -1,11 +1,16 @@
 require("dotenv").config();
-const {Client,GatewayIntentBits,PermissionFlagsBits,ChannelType,SlashCommandBuilder,REST,Routes,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle}=require("discord.js");
+const {Client,GatewayIntentBits,PermissionFlagsBits,ChannelType,SlashCommandBuilder,REST,Routes,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle,ModalBuilder,TextInputBuilder,TextInputStyle}=require("discord.js");
 const fs=require("fs");
 const {DISCORD_TOKEN:token,CLIENT_ID:clientId}=process.env;
 const DEAL_DISCOUNT_PERCENT=Math.max(5,Number(process.env.DEAL_DISCOUNT_PERCENT||20));
 const DEAL_SCAN_SECONDS=Math.max(30,Number(process.env.DEAL_SCAN_SECONDS||60));
 const DEAL_SCAN_PAGES=Math.max(1,Math.min(20,Number(process.env.DEAL_SCAN_PAGES||10)));
 if(!token||!clientId) throw new Error("Set DISCORD_TOKEN and CLIENT_ID in .env");
+const minecraftPanelDataPath=path.join(__dirname,"minecraft-panel-data.json");
+let minecraftPanelData={};
+try{minecraftPanelData=JSON.parse(fs.readFileSync(minecraftPanelDataPath,"utf8"));}catch{}
+function saveMinecraftPanelData(){fs.writeFileSync(minecraftPanelDataPath,JSON.stringify(minecraftPanelData,null,2));}
+function getMinecraftPanelState(guildId){return minecraftPanelData[guildId]||(minecraftPanelData[guildId]={version:"1.21.11",buildStatus:"ready",savedProgress:null});}
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.GuildMessageReactions,GatewayIntentBits.GuildInvites,GatewayIntentBits.GuildMembers,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildVoiceStates]});
 const roles=[
 ["👑 Owner",0xF1C40F,true],["🛡️ Administrator",0xE74C3C,true],["🔨 Senior Moderator",0xE67E22,true],["🛡️ Moderator",0x3498DB,true],["🤖 Bot",0x5865F2,true],
@@ -399,17 +404,38 @@ async function inviteStats(guild,user){
 }
 client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token);await rest.put(Routes.applicationCommands(clientId),{body:[command.toJSON(),...extraCommands.map(x=>x.toJSON())]});console.log("Online:",client.user.tag,"• Global commands registered");for(const g of client.guilds.cache.values())refreshInvites(g);animateRoles();setInterval(animateRoles,180000);const run=async()=>{for(const g of client.guilds.cache.values()){try{const r=await scanDeals(g);if(r.sent)console.log("Web deal scanner:",r.sent,"new deals");}catch(e){console.error("Web deal scanner:",e.message)}}};run();setInterval(run,DEAL_SCAN_SECONDS*1000)});
 client.on("interactionCreate",async i=>{
+ if(i.isModalSubmit()&&i.customId==="mc-panel-version-modal"){
+  if(!i.guild||!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return i.reply({content:"Manage Server permission required.",ephemeral:true});
+  const version=i.fields.getTextInputValue("version").trim();
+  if(!/^\d+\.\d+(?:\.\d+)?$/.test(version))return i.reply({content:"Enter a version like 1.21.11.",ephemeral:true});
+  const st=getMinecraftPanelState(i.guildId);st.version=version;st.updatedAt=new Date().toISOString();saveMinecraftPanelData();return i.reply({content:"✅ Minecraft version saved: **"+version+"**. This records the version setting; it does not switch a connected Minecraft client automatically.",ephemeral:true});
+ }
  if(i.isChatInputCommand()&&i.commandName==="mc-panel"){
   if(!i.guild)return i.reply({content:"Use this inside your Discord server.",ephemeral:true});
   if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return i.reply({content:"You need Manage Server permission.",ephemeral:true});
   const embed=new EmbedBuilder().setColor(0x2ECC71).setTitle("⛏️ MINECRAFT CONTROL CENTER").setDescription("Manage supported Minecraft utilities from this panel. Press a button below to view status or setup guidance.\n\n**Server:** Java Edition\n**Automation:** limited to authorized and server-permitted use.").addFields({name:"🟢 Server Status",value:"Check whether the configured Java server is online.",inline:true},{name:"📦 Schematic Planner",value:"Learn how to analyze a `.litematic` or `.schem` file.",inline:true},{name:"🎒 Inventory & Controls",value:"View what is currently supported and what requires an authorized Minecraft client.",inline:true}).setFooter({text:"Never enter or share Minecraft/Microsoft passwords in Discord."}).setTimestamp();
   const row1=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("mc-panel:status").setLabel("Server Status").setEmoji("🟢").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId("mc-panel:schematic").setLabel("Schematic Planner").setEmoji("📦").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId("mc-panel:inventory").setLabel("Inventory & Controls").setEmoji("🎒").setStyle(ButtonStyle.Secondary));
-  const row2=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("mc-panel:connect").setLabel("Connection Setup").setEmoji("🔌").setStyle(ButtonStyle.Secondary),new ButtonBuilder().setCustomId("mc-panel:safety").setLabel("Safety & Limits").setEmoji("🛡️").setStyle(ButtonStyle.Secondary));
-  return i.reply({embeds:[embed],components:[row1,row2]});
+  const row2=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("mc-panel:connect").setLabel("Connection Setup").setEmoji("🔌").setStyle(ButtonStyle.Secondary),new ButtonBuilder().setCustomId("mc-panel:safety").setLabel("Safety & Limits").setEmoji("🛡️").setStyle(ButtonStyle.Secondary),new ButtonBuilder().setCustomId("mc-panel:version").setLabel("Set MC Version").setEmoji("⚙️").setStyle(ButtonStyle.Primary));
+  const row3=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("mc-panel:pause").setLabel("Pause Build Plan").setEmoji("⏸️").setStyle(ButtonStyle.Secondary),new ButtonBuilder().setCustomId("mc-panel:resume").setLabel("Resume Build Plan").setEmoji("▶️").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId("mc-panel:save").setLabel("Save Progress").setEmoji("💾").setStyle(ButtonStyle.Primary));
+  const st=getMinecraftPanelState(i.guildId);
+  embed.addFields({name:"⚙️ Saved Settings",value:"**Minecraft version:** "+st.version+"\n**Build planner:** "+st.buildStatus+"\n**Saved progress:** "+(st.savedProgress?"Available":"Not saved"),inline:false});
+  return i.reply({embeds:[embed],components:[row1,row2,row3]});
  }
  if(!i.isButton()||!i.customId.startsWith("mc-panel:"))return;
  const action=i.customId.split(":")[1];
  try{
+  if(action==="version"){
+   const modal=new ModalBuilder().setCustomId("mc-panel-version-modal").setTitle("Minecraft Version");
+   const input=new TextInputBuilder().setCustomId("version").setLabel("Version (e.g. 1.21.11)").setStyle(TextInputStyle.Short).setMinLength(3).setMaxLength(20).setRequired(true).setValue(getMinecraftPanelState(i.guildId).version||"1.21.11");
+   modal.addComponents(new ActionRowBuilder().addComponents(input));return i.showModal(modal);
+  }
+  if(["pause","resume","save"].includes(action)){
+   if(!i.guild||!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return i.reply({content:"Manage Server permission required.",ephemeral:true});
+   const st=getMinecraftPanelState(i.guildId);
+   if(action==="pause"){st.buildStatus="paused";st.updatedAt=new Date().toISOString();saveMinecraftPanelData();return i.reply({content:"⏸️ Build **planner** paused and saved. Note: this bot currently analyses schematics only; no Minecraft blocks are being placed by a live builder.",ephemeral:true});}
+   if(action==="resume"){st.buildStatus="ready";st.updatedAt=new Date().toISOString();saveMinecraftPanelData();return i.reply({content:"▶️ Build planner resumed and saved. It is still a planning state only, not a live Minecraft build connection.",ephemeral:true});}
+   st.savedProgress={version:st.version,buildStatus:st.buildStatus,savedAt:new Date().toISOString(),origin:st.origin||null,schematic:st.schematic||null};saveMinecraftPanelData();return i.reply({content:"💾 Progress/settings saved to minecraft-panel-data.json. They will be loaded again after restart **as long as your host preserves this file**. This saves planner settings, not an in-progress live block placement.",ephemeral:true});
+  }
   if(action==="status"){
    const host=process.env.MINECRAFT_SERVER_HOST?.trim();
    if(!host)return i.reply({content:"⚙️ Server host is not configured. Set MINECRAFT_SERVER_HOST=play.example.com in the bot host environment and restart. Do not include passwords.",ephemeral:true});
