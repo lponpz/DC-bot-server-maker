@@ -47,37 +47,19 @@ async function animateRoles(){
  }
 }
 async function resetBotStructure(g){
- await g.channels.fetch(); await g.roles.fetch();
- const managedCategories=new Set([
- "📌 START HERE","🌐 SMP COMMUNITY","🛒 ITEM MARKET","💵 SMP ECONOMY","🛡️ SAFE TRADING","☕ PLUGIN DEVELOPMENT","🤝 SERVICES","🎫 SUPPORT","🔊 VOICE","🔒 STAFF",
- "📌・START HERE","🌐・PUBLIC COMMUNITY","❤️・LIFESTEAL SMP","⚔️・PVP & TEAMS","💰・TRADING & ECONOMY","🎉・EVENTS & REWARDS","🎫・HELP & REPORTS","🔒・STAFF HQ",
- "📌・SERVER INFO","❤️・LIFESTEAL","⚔️・PVP & TEAMS","💰・ECONOMY","🎉・EVENTS","🎫・SUPPORT","🔒・STAFF",
- "📌・COMPETITIVE INFO","⚔️・RANKED LIFESTEAL","🏟️・TOURNAMENTS","🧰・LOADOUTS",
- "📌・HARDCORE INFO","☠️・HARDCORE LIFESTEAL","🔥・BOUNTIES",
- "📌・CRYSTAL INFO","💎・CRYSTAL PVP","🧪・KITS & LOADOUTS",
- "📌・SEASON INFO","🌱・SEASONAL LIFESTEAL",
- "📌・SKYBLOCK INFO","🏝️・ISLANDS","⛏️・MINIONS",
- "📌・PRISON INFO","⛏️・MINES","💰・PRESTIGE",
- "📌・MCFA START HERE","🎁・MCFA GIVEAWAYS","🌐・BIG COMMUNITY","🎉・EVENTS & REWARDS","🛡️・SAFETY & SUPPORT","🔒・STAFF ONLY",
- "📌 START HERE","🎁 MCFA GIVEAWAYS","🌐 BIG COMMUNITY","🎉 EVENTS & REWARDS","🛡️ SAFETY & SUPPORT","🔒 STAFF ONLY"
- ]);
- const managedRoleNames=new Set(roles.map(x=>x[0]));
- const templateRoleNames=new Set(["👑 Network Owner","🛡️ Admin","🔨 Moderator","🎥 Creator","💎 Supporter","❤️ Lifesteal Player","🔔 Event Pings","👑 Lifesteal Owner","🛡️ Lifesteal Staff","💀 Heart Hunter","💎 Donor","🛡️ Competitive Staff","⚔️ Ranked Fighter","💀 Kill Leader","🏆 Tournament Winner","👑 Hardcore Owner","🛡️ Hardcore Staff","☠️ Survivor","🔥 Bounty Hunter","🏅 Last Survivor","👑 MCFA Owner","🛡️ MCFA Admin","🔨 MCFA Moderator","🎁 Giveaway Host","✅ Verified Member","🎮 Minecraft Player","💎 Premium Member","🔔 Giveaway Pings","🌟 Community Member"]);
- const managedCategoryIds=new Set([...g.channels.cache.values()].filter(ch=>ch.type===ChannelType.GuildCategory&&managedCategories.has(ch.name)).map(ch=>ch.id));
- for(const ch of [...g.channels.cache.values()]){
-  if(ch.id===g.id||ch.type===ChannelType.GuildCategory)continue;
-  const isTicket=ch.name.startsWith("ticket-");
-  const isInsideManagedCategory=managedCategoryIds.has(ch.parentId);
-  const isKnownManagedChannel=Object.values(groups).flat().some(x=>x[0]===ch.name);
-  if(isTicket||isInsideManagedCategory||isKnownManagedChannel)await ch.delete("Bot-managed structure reset").catch(e=>console.error("Could not delete channel "+ch.name+": "+e.message));
- }
- for(const ch of [...g.channels.cache.values()])if(ch.type===ChannelType.GuildCategory&&managedCategories.has(ch.name))await ch.delete("Bot-managed category reset").catch(e=>console.error("Could not delete category "+ch.name+": "+e.message));
  await g.channels.fetch();
- for(const r of [...g.roles.cache.values()]){
-  if(r.managed||r.id===g.id||r.name==="@everyone")continue;
-  if(managedRoleNames.has(r.name)||templateRoleNames.has(r.name))await r.delete("Bot-managed roles reset").catch(e=>console.error("Could not delete role "+r.name+": "+e.message));
+ const all=[...g.channels.cache.values()];
+ const failures=[];
+ // Delete every channel first, then every category, so category parents become empty.
+ const children=all.filter(ch=>ch.type!==ChannelType.GuildCategory);
+ const categories=all.filter(ch=>ch.type===ChannelType.GuildCategory);
+ for(const ch of [...children,...categories]){
+  try{await ch.delete("Full server channel/category reset requested by administrator");}
+  catch(e){failures.push(ch.name+": "+e.message);console.error("Could not delete channel/category "+ch.name+": "+e.message);}
  }
- await g.channels.fetch(); await g.roles.fetch();
+ if(failures.length)throw new Error("Could not delete "+failures.length+" channel(s)/category(s). Check bot Manage Channels permission and role hierarchy. Examples: "+failures.slice(0,5).join(" | "));
+ await g.channels.fetch();
+ return {deleted:all.length};
 }
 async function ensureServerIcon(g){if(g.icon)return false;try{const png=makeSmpIconPng();await g.setIcon(png,"Automatic SMP marketplace icon");return true}catch(e){console.error("Server icon:",e.message);return false;}}
 function makeSmpIconPng(){const zlib=require("zlib");const w=256,h=256;const raw=[];for(let y=0;y<h;y++){raw.push(0);for(let x=0;x<w;x++){const dx=x-128,dy=y-128,d=Math.sqrt(dx*dx+dy*dy);let rr=18,gg=25,bb=38;if(d<112){rr=46;gg=204;bb=113;}if(d<88){rr=24;gg=32;bb=48;}if((x>48&&x<208&&y>96&&y<160)||(x>112&&x<144&&y>52&&y<204)){rr=46;gg=204;bb=113;}raw.push(rr,gg,bb,255);}}const crc32=b=>{let c=0xffffffff;for(const n of b){c^=n;for(let k=0;k<8;k++)c=(c>>>1)^(0xedb88320&-(c&1));}return (c^0xffffffff)>>>0};const chunk=(type,data)=>{const t=Buffer.from(type);const d=Buffer.from(data);const out=Buffer.alloc(12+d.length);out.writeUInt32BE(d.length,0);t.copy(out,4);d.copy(out,8);out.writeUInt32BE(crc32(Buffer.concat([t,d])),8+d.length);return out};const sig=Buffer.from([137,80,78,71,13,10,26,10]);const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(w,0);ihdr.writeUInt32BE(h,4);ihdr[8]=8;ihdr[9]=6;const idat=zlib.deflateSync(Buffer.from(raw));return Buffer.concat([sig,chunk("IHDR",ihdr),chunk("IDAT",idat),chunk("IEND",Buffer.alloc(0))]);}
@@ -467,7 +449,7 @@ client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.c
  const emoji=await i.guild.emojis.create({attachment,name,reason:"Emoji imported by server manager command"});
  await i.editReply("✅ Added custom emoji "+emoji+" as `:"+emoji.name+":` (ID: `"+emoji.id+"`).");
  }catch(e){console.error("add-emoji failed:",e);await i.editReply("❌ Could not add emoji: "+(e?.message||"Unknown error")+". Ensure the bot has Create Expressions/Manage Emojis permission and the server has an available emoji slot.");}}
-if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{if(!i.guild)throw new Error("Run this command inside a server.");await resetBotStructure(i.guild);const summary=await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Reset finished and marketplace structure rebuilt. Checked "+summary[1]+" channels and "+summary[2]+" roles. Unrelated channels/roles were preserved.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
+if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{if(!i.guild)throw new Error("Run this command inside a server.");const resetSummary=await resetBotStructure(i.guild);const summary=await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Full reset finished. Deleted "+resetSummary.deleted+" existing channel(s)/category(ies), then rebuilt the marketplace layout with "+summary[1]+" channels and "+summary[2]+" roles.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
 if(i.commandName==="mcfa-giveaway"){
  await i.deferReply({ephemeral:true});
  const prize=i.options.getString("prize"), minutes=i.options.getInteger("minutes"), winners=i.options.getInteger("winners")||1;
