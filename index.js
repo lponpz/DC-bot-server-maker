@@ -308,7 +308,7 @@ async function connectTtsVoice(channel,stay=true){
 }
 async function sayTts(guildId,textToSay,language){
  const state=voiceStates.get(guildId);if(!state)throw new Error("Pehle /tts-join se voice channel join karo.");
- const clean=String(textToSay||"").replace(/https?:\\/\\/\\S+/gi," link ").replace(/<@!?\\d+>|<@&\\d+>|<#\\d+>/g,"").slice(0,220).trim();if(!clean)return;
+ const clean=String(textToSay||"").replace(/https?:\/\/\S+/gi," link ").replace(/<@!?\d+>|<@&\d+>|<#\d+>/g,"").slice(0,220).trim();if(!clean)return;
  state.queue.push({text:clean,language:language||getTtsSettings(guildId).language||"hi"});if(state.speaking)return;state.speaking=true;
  try{while(state.queue.length){const item=state.queue.shift();const lang=item.language==="ur"?"ur":item.language==="en"?"en":"hi";
   const url=require("google-tts-api").getAudioUrl(item.text,{lang,slow:false,host:"https://translate.google.com"});
