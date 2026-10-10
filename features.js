@@ -1,9 +1,9 @@
 const fs=require("node:fs"),http=require("node:http"),path=require("node:path"),{spawn}=require("node:child_process"),{Readable}=require("node:stream"),ffmpegPath=require("ffmpeg-static");
-const {PermissionFlagsBits,EmbedBuilder}=require("discord.js");
+const {PermissionFlagsBits,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle}=require("discord.js");
 const {joinVoiceChannel,getVoiceConnection,createAudioPlayer,createAudioResource,AudioPlayerStatus,VoiceConnectionStatus,entersState,StreamType}=require("@discordjs/voice");
 const play=require("play-dl"),tts=require("google-tts-api");
 module.exports=function(client){
- const dir=path.join(__dirname,"data");fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,"features.json");
+ const dir=path.join(__dirname,"data");fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,"features.json");const schematicSessions=new Map();
  const read=()=>{try{return JSON.parse(fs.readFileSync(file,"utf8"))}catch{return {guilds:{},users:{}}}};let db=read();const save=()=>fs.writeFileSync(file,JSON.stringify(db,null,2));
  const cfg=id=>db.guilds[id]||(db.guilds[id]={automod:true,autoRead:false,lang:"hi",stay:false,voiceId:null,logs:null,mc:null,levels:true});
  const players=new Map(),queues=new Map(),voicePrefs=new Map(),ttsCooldown=new Map();
@@ -29,7 +29,41 @@ module.exports=function(client){
  if(cmd==="setlogs"){if(!staff(m))return m.reply("Staff permission required.");const ch=m.mentions.channels.first();if(!ch)return m.reply("Usage: !setlogs #channel");c.logs=ch.id;save();return m.reply("Staff log channel saved.")}
  if(cmd==="mcset"){if(!staff(m))return m.reply("Staff permission required.");c.mc=args[0]?.replace(/^https?:\/\//,"").split("/")[0];if(!c.mc)return m.reply("Usage: !mcset play.example.com");save();return m.reply("Minecraft host saved: "+c.mc)}
  if(cmd==="mcstatus"){const host=args[0]||c.mc;if(!host)return m.reply("Set host with !mcset hostname");const r=await fetch("https://api.mcstatus.io/v2/status/java/"+encodeURIComponent(host)),s=await r.json();if(!r.ok)throw Error("Status service error");return m.reply({embeds:[new EmbedBuilder().setTitle("Minecraft Java Status").setDescription("Server: "+host+"\nStatus: "+(s.online?"🟢 Online":"🔴 Offline")+"\nPlayers: "+(s.players?.online??0)+"/"+(s.players?.max??"?")).setColor(s.online?0x2ECC71:0xE74C3C)]})}
- if(cmd==="level"){const u=m.mentions.users.first()||m.author,d=db.users[m.guild.id+":"+u.id]||{xp:0,level:0};return m.reply(u.username+" — Level "+d.level+" • XP "+d.xp)}
+
+ if(cmd==="buildcoords"){const xyz=args.slice(0,3).map(Number);if(xyz.length!==3||xyz.some(n=>!Number.isInteger(n)||Math.abs(n)>30000000))return m.reply("Usage: !buildcoords X Y Z");c.buildCoords=xyz;save();return m.reply("Build origin saved: "+xyz.join(", ")+" (planning only; no blocks placed).")}
+ if(cmd==="schematic"){
+   const att=m.attachments.find(a=>/\.(litematic|schem)$/i.test(a.name||""));
+   if(!att)return m.reply("Attach a .litematic or .schem file and run !schematic. Max 8 MB.");
+   if(att.size>8*1024*1024)return m.reply("File too large (max 8 MB).");
+   await m.reply("Reading schematic and counting blocks...");
+   const tmp=path.join(dir,"schematic-"+m.author.id+"-"+Date.now()+(att.name.toLowerCase().endsWith(".litematic")?".litematic":".schem"));
+   try{
+     const response=await fetch(att.url);if(!response.ok)throw Error("Could not download attachment.");
+     const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length>8*1024*1024)throw Error("File too large.");fs.writeFileSync(tmp,bytes);
+     let report={name:att.name,size:"unknown",materials:[]};
+     if(att.name.toLowerCase().endsWith(".litematic")){
+       const mod=await import("litematic-parser"),load=mod.loadLitematic||mod.default?.loadLitematic;if(!load)throw Error("Litematic parser export not found.");
+       const sc=await load(tmp),mat=new Map();report.name=sc.Metadata?.Name||att.name;
+       const dims=sc.Metadata?.EnclosingSize;report.size=dims?[dims.x+" × "+dims.y+" × "+dims.z]:"multi-region";
+       for(const region of Object.values(sc.Regions||{})){
+         const palette=region.BlockStatePalette||[],states=region.BlockStates||[],size=region.Size||{},volume=Math.abs(Number(size.x||0)*Number(size.y||0)*Number(size.z||0));
+         if(!palette.length||!states.length||!volume)continue;
+         const bits=Math.max(2,Math.ceil(Math.log2(palette.length))),per=Math.floor(64/bits),mask=(1n<<BigInt(bits))-1n;
+         for(let i=0;i<volume;i++){const li=Math.floor(i/per),shift=BigInt((i%per)*bits);if(li>=states.length)break;let word;try{word=BigInt(states[li])}catch{word=0n}if(word<0n)word=BigInt.asUintN(64,word);const pi=Number((word>>shift)&mask),entry=palette[pi];if(!entry)continue;const block=String(entry.Name||entry.name||"minecraft:unknown").replace(/^minecraft:/,"");if(block==="air"||block==="cave_air"||block==="void_air")continue;mat.set(block,(mat.get(block)||0)+1)}
+       }
+       report.materials=[...mat].sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}));
+     }else{
+       const {Schematic}=require("prismarine-schematic"),sc=await Schematic.read(bytes),mat=new Map();report.name=att.name;report.size=String(sc.size.x)+" × "+sc.size.y+" × "+sc.size.z;
+       for(const blockIndex of sc.blocks){const key=String(sc.palette[blockIndex]);mat.set(key,(mat.get(key)||0)+1)}
+       report.materials=[...mat].sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name:"state_id_"+name,count}));
+     }
+     const id=m.id+"-"+Date.now();schematicSessions.set(id,{owner:m.author.id,report});
+     const summary=report.materials.slice(0,20).map(x=>x.name+" × "+x.count).join("\n")||"No non-air blocks detected.";
+     const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("schem-materials:"+id).setLabel("Full material list").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId("schem-coords:"+id).setLabel("Show build coordinates").setStyle(ButtonStyle.Secondary));
+     return m.channel.send({content:"SCHEMATIC ANALYSED\nFile: "+report.name+"\nSize: "+report.size+"\nBlock types: "+report.materials.length+"\n\n"+summary,components:[row]});
+   }catch(e){console.error("Schematic analysis:",e);return m.channel.send("Schematic parse failed: "+e.message.slice(0,350))}finally{fs.promises.unlink(tmp).catch(()=>{})}
+ }
+\n if(cmd==="level"){const u=m.mentions.users.first()||m.author,d=db.users[m.guild.id+":"+u.id]||{xp:0,level:0};return m.reply(u.username+" — Level "+d.level+" • XP "+d.xp)}
  if(cmd==="ai")return m.reply((await ai(rest)).slice(0,1900));
  if(cmd==="image"){if(!process.env.OPENAI_API_KEY)throw Error("Set OPENAI_API_KEY first.");const r=await fetch(process.env.OPENAI_BASE_URL_IMAGE||"https://api.openai.com/v1/images/generations",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENAI_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({model:process.env.OPENAI_IMAGE_MODEL||"gpt-image-1",prompt:rest.slice(0,700),size:"1024x1024"})}),d=await r.json();if(!r.ok)throw Error(d.error?.message||"Image API failed");if(d.data?.[0]?.url)return m.reply({content:"AI image:",files:[d.data[0].url]});if(d.data?.[0]?.b64_json)return m.reply({content:"AI image:",files:[{attachment:Buffer.from(d.data[0].b64_json,"base64"),name:"ai-image.png"}]});throw Error("No image returned")}
  if(cmd==="poll"){const p=rest.split("|").map(x=>x.trim()).filter(Boolean);if(p.length<3)return m.reply("Usage: !poll Question | Option A | Option B");const em=["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"],post=await m.channel.send("📊 "+p.shift()+"\n"+p.slice(0,10).map((x,i)=>em[i]+" "+x).join("\n"));for(let i=0;i<Math.min(10,p.length);i++)await post.react(em[i]);return}
@@ -39,7 +73,17 @@ module.exports=function(client){
  if(cmd==="skip"){player(m.guild.id).stop(true);return m.reply("Skipped.")}if(cmd==="pause"){player(m.guild.id).pause();return m.reply("Paused.")}if(cmd==="resume"){player(m.guild.id).unpause();return m.reply("Resumed.")}if(cmd==="stop"){queues.set(m.guild.id,[]);player(m.guild.id).stop(true);return m.reply("Playback stopped.")}
  }catch(e){console.error("Feature command",cmd,e);return m.reply("❌ "+e.message.slice(0,400)).catch(()=>{})}
  });
- client.on("voiceStateUpdate",(oldS,newS)=>{if(oldS.id!==client.user?.id||!oldS.channelId||newS.channelId)return;const v=voicePrefs.get(oldS.guild.id);if(v?.stay)setTimeout(async()=>{const g=client.guilds.cache.get(oldS.guild.id),ch=await g?.channels.fetch(v.id).catch(()=>null);if(ch?.isVoiceBased()&&!getVoiceConnection(g.id))join(ch,true).catch(e=>console.error(e.message))},4000)});
+
+ client.on("interactionCreate",async interaction=>{
+   if(!interaction.isButton()||!interaction.customId.startsWith("schem-"))return;
+   const [action,id]=interaction.customId.split(":"),session=schematicSessions.get(id);
+   if(!session)return interaction.reply({content:"Schematic session expired; upload it again.",ephemeral:true});
+   if(interaction.user.id!==session.owner)return interaction.reply({content:"Only the uploader can use this schematic panel.",ephemeral:true});
+   if(action==="schem-coords"){const c=cfg(interaction.guildId);return interaction.reply({content:"Saved origin: "+(c.buildCoords?.join(", ")||"not set")+"\nSet with !buildcoords X Y Z. This is a planning tool; it does not place blocks on public servers.",ephemeral:true})}
+   const lines=session.report.materials.map(x=>x.name+" x "+x.count).join("\n")||"No blocks found.";
+   return interaction.reply({content:"Complete material list\n"+lines.slice(0,1800)+(lines.length>1800?"\nList too long for one Discord message; top 20 are in the original report.":""),ephemeral:true});
+ });
+\n client.on("voiceStateUpdate",(oldS,newS)=>{if(oldS.id!==client.user?.id||!oldS.channelId||newS.channelId)return;const v=voicePrefs.get(oldS.guild.id);if(v?.stay)setTimeout(async()=>{const g=client.guilds.cache.get(oldS.guild.id),ch=await g?.channels.fetch(v.id).catch(()=>null);if(ch?.isVoiceBased()&&!getVoiceConnection(g.id))join(ch,true).catch(e=>console.error(e.message))},4000)});
  client.on("messageDelete",m=>{if(m.guild&&!m.author?.bot)log(m.guild,"🗑️ Message deleted by "+(m.author?.tag||"unknown")+" in #"+(m.channel?.name||"unknown")+": "+String(m.content||"[no text]").slice(0,800))});
  client.on("messageUpdate",(oldM,newM)=>{if(newM.guild&&!newM.author?.bot&&oldM.content!==newM.content)log(newM.guild,"✏️ Message edited by "+newM.author.tag+" in #"+newM.channel.name+"\nBefore: "+String(oldM.content||"").slice(0,500)+"\nAfter: "+String(newM.content||"").slice(0,500))});
  client.on("guildMemberAdd",m=>log(m.guild,"📥 Member joined: "+m.user.tag+" ("+m.id+")"));
