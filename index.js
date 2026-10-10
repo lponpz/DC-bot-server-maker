@@ -274,7 +274,8 @@ new SlashCommandBuilder().setName("tts-join").setDescription("Join your current 
 new SlashCommandBuilder().setName("tts-leave").setDescription("Disconnect the TTS bot from voice"),
 new SlashCommandBuilder().setName("tts-say").setDescription("Speak text aloud in voice chat").addStringOption(o=>o.setName("text").setDescription("Text to speak").setRequired(true).setMaxLength(220)),
 new SlashCommandBuilder().setName("tts-autoread").setDescription("Toggle reading this text channel into voice chat").addBooleanOption(o=>o.setName("enabled").setDescription("Enable or disable auto-read").setRequired(true)),
-new SlashCommandBuilder().setName("tts-language").setDescription("Choose TTS language").addStringOption(o=>o.setName("language").setDescription("Voice language").setRequired(true).addChoices({name:"Hindi",value:"hi"},{name:"Urdu",value:"ur"},{name:"English",value:"en"}))
+new SlashCommandBuilder().setName("tts-language").setDescription("Choose TTS language").addStringOption(o=>o.setName("language").setDescription("Voice language").setRequired(true).addChoices({name:"Hindi",value:"hi"},{name:"Urdu",value:"ur"},{name:"English",value:"en"})),
+new SlashCommandBuilder().setName("mc-panel").setDescription("Post the Minecraft control panel with interactive buttons").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 ];
 
 
@@ -397,6 +398,33 @@ async function inviteStats(guild,user){
  return [...inv.values()].filter(x=>x.inviter?.id===user.id).reduce((n,x)=>n+(x.uses||0),0);
 }
 client.once("ready",async()=>{const rest=new REST({version:"10"}).setToken(token);await rest.put(Routes.applicationCommands(clientId),{body:[command.toJSON(),...extraCommands.map(x=>x.toJSON())]});console.log("Online:",client.user.tag,"• Global commands registered");for(const g of client.guilds.cache.values())refreshInvites(g);animateRoles();setInterval(animateRoles,180000);const run=async()=>{for(const g of client.guilds.cache.values()){try{const r=await scanDeals(g);if(r.sent)console.log("Web deal scanner:",r.sent,"new deals");}catch(e){console.error("Web deal scanner:",e.message)}}};run();setInterval(run,DEAL_SCAN_SECONDS*1000)});
+client.on("interactionCreate",async i=>{
+ if(i.isChatInputCommand()&&i.commandName==="mc-panel"){
+  if(!i.guild)return i.reply({content:"Use this inside your Discord server.",ephemeral:true});
+  if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return i.reply({content:"You need Manage Server permission.",ephemeral:true});
+  const embed=new EmbedBuilder().setColor(0x2ECC71).setTitle("⛏️ MINECRAFT CONTROL CENTER").setDescription("Manage supported Minecraft utilities from this panel. Press a button below to view status or setup guidance.\n\n**Server:** Java Edition\n**Automation:** limited to authorized and server-permitted use.").addFields({name:"🟢 Server Status",value:"Check whether the configured Java server is online.",inline:true},{name:"📦 Schematic Planner",value:"Learn how to analyze a `.litematic` or `.schem` file.",inline:true},{name:"🎒 Inventory & Controls",value:"View what is currently supported and what requires an authorized Minecraft client.",inline:true}).setFooter({text:"Never enter or share Minecraft/Microsoft passwords in Discord."}).setTimestamp();
+  const row1=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("mc-panel:status").setLabel("Server Status").setEmoji("🟢").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId("mc-panel:schematic").setLabel("Schematic Planner").setEmoji("📦").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId("mc-panel:inventory").setLabel("Inventory & Controls").setEmoji("🎒").setStyle(ButtonStyle.Secondary));
+  const row2=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("mc-panel:connect").setLabel("Connection Setup").setEmoji("🔌").setStyle(ButtonStyle.Secondary),new ButtonBuilder().setCustomId("mc-panel:safety").setLabel("Safety & Limits").setEmoji("🛡️").setStyle(ButtonStyle.Secondary));
+  return i.reply({embeds:[embed],components:[row1,row2]});
+ }
+ if(!i.isButton()||!i.customId.startsWith("mc-panel:"))return;
+ const action=i.customId.split(":")[1];
+ try{
+  if(action==="status"){
+   const host=process.env.MINECRAFT_SERVER_HOST?.trim();
+   if(!host)return i.reply({content:"⚙️ Server host is not configured. Set MINECRAFT_SERVER_HOST=play.example.com in the bot host environment and restart. Do not include passwords.",ephemeral:true});
+   const r=await fetch("https://api.mcstatus.io/v2/status/java/"+encodeURIComponent(host));
+   if(!r.ok)throw new Error("Status service returned HTTP "+r.status);
+   const st=await r.json();
+   const e=new EmbedBuilder().setColor(st.online?0x2ECC71:0xE74C3C).setTitle("⛏️ Java Server Status").setDescription("**Host:** "+host+"\n**Status:** "+(st.online?"🟢 Online":"🔴 Offline")+"\n**Players:** "+(st.players?.online??0)+"/"+(st.players?.max??"?")).setTimestamp();
+   return i.reply({embeds:[e],ephemeral:true});
+  }
+  if(action==="schematic")return i.reply({content:"📦 **Schematic Planner**\nUpload a .litematic or .schem file to a trusted/private Discord channel. The current analyzer is experimental; it counts materials but does not place blocks in Minecraft. Follow public-server rules.",ephemeral:true});
+  if(action==="inventory")return i.reply({content:"🎒 **Inventory & Controls**\nLive Minecraft inventory, movement, auto-eat and building need a separate authenticated Minecraft client. They are not connected to this panel yet. Never post a Microsoft password, session token, or login code.",ephemeral:true});
+  if(action==="connect")return i.reply({content:"🔌 **Connection setup**\nSet MINECRAFT_SERVER_HOST in the bot host environment for Java server status checks. A real Minecraft client is separate and should only be used where the server owner permits bots. Do not put passwords in Discord.",ephemeral:true});
+  if(action==="safety")return i.reply({content:"🛡️ **Safety & limits**\nThis panel does not bypass anti-cheat, login protections, AFK rules, or access controls. Automated movement/building should only be enabled on servers you own or are explicitly authorized to automate.",ephemeral:true});
+ }catch(e){console.error("Minecraft panel button:",e);if(!i.replied&&!i.deferred)return i.reply({content:"Could not complete that action: "+String(e.message||e).slice(0,250),ephemeral:true});}
+});
 client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.commandName==="setup"){await i.deferReply({ephemeral:true});try{if(!i.guildId)return i.editReply("❌ Use /setup inside your Discord server, not in DMs.");const guild=i.guild||await client.guilds.fetch(i.guildId);if(!guild||!guild.channels||!guild.roles)return i.editReply("❌ I could not access this server. Please restart the bot and try again.");await guild.channels.fetch();await guild.roles.fetch();const type=i.options.getString("type");if(type==="mcfa-full"||type==="mcfa-community"||type==="mcfa-giveaways"){const n=await setupMCFA(guild,type);await ensureServerIcon(guild);await i.editReply("🎁 MCFA setup complete — created/checked "+n+" channels across giveaway, community and safety sections.");}else if(["hosting","smp","pvp","network","creator","events","lifesteal-public","lifesteal-competitive","lifesteal-hardcore","lifesteal-crystal","lifesteal-seasonal","skyblock","prison"].includes(type)){const n=await setupTemplate(guild,type);await ensureServerIcon(guild);await i.editReply("✅ "+type.toUpperCase()+" template installed! Created/checked "+n+" channels. You can customize names and permissions anytime.");}else if(type==="full"){await setup(guild);await ensureServerIcon(guild);await installMode(guild,"trading");await installMode(guild,"developer");await i.editReply("🚀 FULL SETUP DONE — SMP + Trading + Developer + Reaction Roles installed.");}else await i.editReply("✅ "+(await installMode(guild,type))+" is ready. Check #🎭・roles.");}catch(e){console.error("Setup failed:",e);await i.editReply("❌ Setup failed: "+(e?.message||"Unknown error")+". Check bot server access and permissions.");}}if(i.commandName==="add-emoji"){await i.deferReply({ephemeral:true});try{
  if(!i.guild)throw new Error("Use this command inside your server.");
  if(!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild))throw new Error("You need Manage Server permission.");
