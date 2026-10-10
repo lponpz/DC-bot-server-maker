@@ -40,6 +40,10 @@ module.exports=function(client){
  }catch(e){console.error("Feature command",cmd,e);return m.reply("❌ "+e.message.slice(0,400)).catch(()=>{})}
  });
  client.on("voiceStateUpdate",(oldS,newS)=>{if(oldS.id!==client.user?.id||!oldS.channelId||newS.channelId)return;const v=voicePrefs.get(oldS.guild.id);if(v?.stay)setTimeout(async()=>{const g=client.guilds.cache.get(oldS.guild.id),ch=await g?.channels.fetch(v.id).catch(()=>null);if(ch?.isVoiceBased()&&!getVoiceConnection(g.id))join(ch,true).catch(e=>console.error(e.message))},4000)});
+ client.on("messageDelete",m=>{if(m.guild&&!m.author?.bot)log(m.guild,"🗑️ Message deleted by "+(m.author?.tag||"unknown")+" in #"+(m.channel?.name||"unknown")+": "+String(m.content||"[no text]").slice(0,800))});
+ client.on("messageUpdate",(oldM,newM)=>{if(newM.guild&&!newM.author?.bot&&oldM.content!==newM.content)log(newM.guild,"✏️ Message edited by "+newM.author.tag+" in #"+newM.channel.name+"\nBefore: "+String(oldM.content||"").slice(0,500)+"\nAfter: "+String(newM.content||"").slice(0,500))});
+ client.on("guildMemberAdd",m=>log(m.guild,"📥 Member joined: "+m.user.tag+" ("+m.id+")"));
+ client.on("guildMemberRemove",m=>log(m.guild,"📤 Member left: "+m.user.tag+" ("+m.id+")"));
  client.once("ready",()=>{for(const g of client.guilds.cache.values()){const c=cfg(g.id);if(c.stay&&c.voiceId)g.channels.fetch(c.voiceId).then(ch=>ch?.isVoiceBased()&&join(ch,true)).catch(()=>{})}
  const port=Number(process.env.DASHBOARD_PORT||8000);http.createServer((req,res)=>{res.setHeader("Content-Type","application/json; charset=utf-8");res.setHeader("Cache-Control","no-store");if(req.url==="/"||req.url==="/health"){res.writeHead(200);return res.end(JSON.stringify({ok:true,bot:client.user?.tag,guilds:client.guilds.cache.size,uptime:Math.floor(process.uptime()),note:"Read-only dashboard API"}))}res.writeHead(404);res.end('{"error":"not found"}')}).listen(port,"0.0.0.0",()=>console.log("Dashboard API on port "+port))});
 };
