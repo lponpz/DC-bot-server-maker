@@ -58,13 +58,15 @@ async function resetBotStructure(g){
  ]);
  const managedRoleNames=new Set(roles.map(x=>x[0]));
  const templateRoleNames=new Set(["👑 Network Owner","🛡️ Admin","🔨 Moderator","🎥 Creator","💎 Supporter","❤️ Lifesteal Player","🔔 Event Pings","👑 Lifesteal Owner","🛡️ Lifesteal Staff","💀 Heart Hunter","💎 Donor","🛡️ Competitive Staff","⚔️ Ranked Fighter","💀 Kill Leader","🏆 Tournament Winner","👑 Hardcore Owner","🛡️ Hardcore Staff","☠️ Survivor","🔥 Bounty Hunter","🏅 Last Survivor","👑 MCFA Owner","🛡️ MCFA Admin","🔨 MCFA Moderator","🎁 Giveaway Host","✅ Verified Member","🎮 Minecraft Player","💎 Premium Member","🔔 Giveaway Pings","🌟 Community Member"]);
+ const managedCategoryIds=new Set([...g.channels.cache.values()].filter(ch=>ch.type===ChannelType.GuildCategory&&managedCategories.has(ch.name)).map(ch=>ch.id));
  for(const ch of [...g.channels.cache.values()]){
-  if(ch.id===g.id)continue;
-  const isManagedCategory=ch.type===ChannelType.GuildCategory&&managedCategories.has(ch.name);
+  if(ch.id===g.id||ch.type===ChannelType.GuildCategory)continue;
   const isTicket=ch.name.startsWith("ticket-");
+  const isInsideManagedCategory=managedCategoryIds.has(ch.parentId);
   const isKnownManagedChannel=Object.values(groups).flat().some(x=>x[0]===ch.name);
-  if(isManagedCategory||isTicket||isKnownManagedChannel)await ch.delete("Bot-managed structure reset").catch(e=>console.error("Could not delete channel "+ch.name+": "+e.message));
+  if(isTicket||isInsideManagedCategory||isKnownManagedChannel)await ch.delete("Bot-managed structure reset").catch(e=>console.error("Could not delete channel "+ch.name+": "+e.message));
  }
+ for(const ch of [...g.channels.cache.values()])if(ch.type===ChannelType.GuildCategory&&managedCategories.has(ch.name))await ch.delete("Bot-managed category reset").catch(e=>console.error("Could not delete category "+ch.name+": "+e.message));
  await g.channels.fetch();
  for(const r of [...g.roles.cache.values()]){
   if(r.managed||r.id===g.id||r.name==="@everyone")continue;
