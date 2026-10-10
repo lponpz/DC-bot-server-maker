@@ -41,7 +41,37 @@ async function animateRoles(){
   }
  }
 }
-async function resetBotStructure(g){await g.channels.fetch();await g.roles.fetch();const managedRoleNames=new Set(roles.map(x=>x[0]));const botManagedChannels=new Set(Object.values(groups).flat().map(x=>x[0]));for(const ch of [...g.channels.cache.values()]){if(ch.id!==g.id && (botManagedChannels.has(ch.name)||ch.name.startsWith("ticket-")))await ch.delete("SMP bot full reset").catch(()=>{});}for(const r of [...g.roles.cache.values()]){if(!r.managed&&r.id!==g.id&&managedRoleNames.has(r.name))await r.delete("SMP bot full reset").catch(()=>{});}await g.channels.fetch();await g.roles.fetch();}
+async function resetBotStructure(g){
+ await g.channels.fetch(); await g.roles.fetch();
+ const managedCategories=new Set([
+ "📌 START HERE","🌐 SMP COMMUNITY","🛒 ITEM MARKET","💵 SMP ECONOMY","🛡️ SAFE TRADING","☕ PLUGIN DEVELOPMENT","🤝 SERVICES","🎫 SUPPORT","🔊 VOICE","🔒 STAFF",
+ "📌・START HERE","🌐・PUBLIC COMMUNITY","❤️・LIFESTEAL SMP","⚔️・PVP & TEAMS","💰・TRADING & ECONOMY","🎉・EVENTS & REWARDS","🎫・HELP & REPORTS","🔒・STAFF HQ",
+ "📌・SERVER INFO","❤️・LIFESTEAL","⚔️・PVP & TEAMS","💰・ECONOMY","🎉・EVENTS","🎫・SUPPORT","🔒・STAFF",
+ "📌・COMPETITIVE INFO","⚔️・RANKED LIFESTEAL","🏟️・TOURNAMENTS","🧰・LOADOUTS",
+ "📌・HARDCORE INFO","☠️・HARDCORE LIFESTEAL","🔥・BOUNTIES",
+ "📌・CRYSTAL INFO","💎・CRYSTAL PVP","🧪・KITS & LOADOUTS",
+ "📌・SEASON INFO","🌱・SEASONAL LIFESTEAL",
+ "📌・SKYBLOCK INFO","🏝️・ISLANDS","⛏️・MINIONS",
+ "📌・PRISON INFO","⛏️・MINES","💰・PRESTIGE",
+ "📌・MCFA START HERE","🎁・MCFA GIVEAWAYS","🌐・BIG COMMUNITY","🎉・EVENTS & REWARDS","🛡️・SAFETY & SUPPORT","🔒・STAFF ONLY",
+ "📌 START HERE","🎁 MCFA GIVEAWAYS","🌐 BIG COMMUNITY","🎉 EVENTS & REWARDS","🛡️ SAFETY & SUPPORT","🔒 STAFF ONLY"
+ ]);
+ const managedRoleNames=new Set(roles.map(x=>x[0]));
+ const templateRoleNames=new Set(["👑 Network Owner","🛡️ Admin","🔨 Moderator","🎥 Creator","💎 Supporter","❤️ Lifesteal Player","🔔 Event Pings","👑 Lifesteal Owner","🛡️ Lifesteal Staff","💀 Heart Hunter","💎 Donor","🛡️ Competitive Staff","⚔️ Ranked Fighter","💀 Kill Leader","🏆 Tournament Winner","👑 Hardcore Owner","🛡️ Hardcore Staff","☠️ Survivor","🔥 Bounty Hunter","🏅 Last Survivor","👑 MCFA Owner","🛡️ MCFA Admin","🔨 MCFA Moderator","🎁 Giveaway Host","✅ Verified Member","🎮 Minecraft Player","💎 Premium Member","🔔 Giveaway Pings","🌟 Community Member"]);
+ for(const ch of [...g.channels.cache.values()]){
+  if(ch.id===g.id)continue;
+  const isManagedCategory=ch.type===ChannelType.GuildCategory&&managedCategories.has(ch.name);
+  const isTicket=ch.name.startsWith("ticket-");
+  const isKnownManagedChannel=Object.values(groups).flat().some(x=>x[0]===ch.name);
+  if(isManagedCategory||isTicket||isKnownManagedChannel)await ch.delete("Bot-managed structure reset").catch(e=>console.error("Could not delete channel "+ch.name+": "+e.message));
+ }
+ await g.channels.fetch();
+ for(const r of [...g.roles.cache.values()]){
+  if(r.managed||r.id===g.id||r.name==="@everyone")continue;
+  if(managedRoleNames.has(r.name)||templateRoleNames.has(r.name))await r.delete("Bot-managed roles reset").catch(e=>console.error("Could not delete role "+r.name+": "+e.message));
+ }
+ await g.channels.fetch(); await g.roles.fetch();
+}
 async function ensureServerIcon(g){if(g.icon)return false;try{const png=makeSmpIconPng();await g.setIcon(png,"Automatic SMP marketplace icon");return true}catch(e){console.error("Server icon:",e.message);return false;}}
 function makeSmpIconPng(){const zlib=require("zlib");const w=256,h=256;const raw=[];for(let y=0;y<h;y++){raw.push(0);for(let x=0;x<w;x++){const dx=x-128,dy=y-128,d=Math.sqrt(dx*dx+dy*dy);let rr=18,gg=25,bb=38;if(d<112){rr=46;gg=204;bb=113;}if(d<88){rr=24;gg=32;bb=48;}if((x>48&&x<208&&y>96&&y<160)||(x>112&&x<144&&y>52&&y<204)){rr=46;gg=204;bb=113;}raw.push(rr,gg,bb,255);}}const crc32=b=>{let c=0xffffffff;for(const n of b){c^=n;for(let k=0;k<8;k++)c=(c>>>1)^(0xedb88320&-(c&1));}return (c^0xffffffff)>>>0};const chunk=(type,data)=>{const t=Buffer.from(type);const d=Buffer.from(data);const out=Buffer.alloc(12+d.length);out.writeUInt32BE(d.length,0);t.copy(out,4);d.copy(out,8);out.writeUInt32BE(crc32(Buffer.concat([t,d])),8+d.length);return out};const sig=Buffer.from([137,80,78,71,13,10,26,10]);const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(w,0);ihdr.writeUInt32BE(h,4);ihdr[8]=8;ihdr[9]=6;const idat=zlib.deflateSync(Buffer.from(raw));return Buffer.concat([sig,chunk("IHDR",ihdr),chunk("IDAT",idat),chunk("IEND",Buffer.alloc(0))]);}
 async function installMode(g,mode){await g.roles.fetch();for(const [n,c,h] of roles)await role(g,n,c,h);let panel=g.channels.cache.find(x=>x.name==="🎭・roles");if(!panel)panel=await g.channels.create({name:"🎭・roles",type:ChannelType.GuildText});await makeRolePanel(g,panel,mode);return panel.name;}
@@ -229,7 +259,15 @@ new SlashCommandBuilder().setName("close-ticket").setDescription("Close the curr
 new SlashCommandBuilder().setName("deal-scan").setDescription("Run a Donut.Auction bargain scan now").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 new SlashCommandBuilder().setName("carl").setDescription("Get the official Carl-bot dashboard"),
 new SlashCommandBuilder().setName("reset-server").setDescription("Reset the bot-managed SMP server structure").addStringOption(o=>o.setName("confirm").setDescription("Type RESET to confirm").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-new SlashCommandBuilder().setName("embed").setDescription("Create a professional embed in the current channel").addStringOption(o=>o.setName("title").setDescription("Embed title").setRequired(true)).addStringOption(o=>o.setName("description").setDescription("Embed description").setRequired(true)).addStringOption(o=>o.setName("color").setDescription("Hex color, e.g. #5865F2").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+new SlashCommandBuilder().setName("embed").setDescription("Create a professional embed in the current channel").addStringOption(o=>o.setName("title").setDescription("Embed title").setRequired(true)).addStringOption(o=>o.setName("description").setDescription("Embed description").setRequired(true)).addStringOption(o=>o.setName("color").setDescription("Hex color, e.g. #5865F2").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+new SlashCommandBuilder().setName("purge").setDescription("Bulk delete recent messages").addIntegerOption(o=>o.setName("amount").setDescription("Number of messages (1-100)").setRequired(true).setMinValue(1).setMaxValue(100)).setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+new SlashCommandBuilder().setName("slowmode").setDescription("Set channel slowmode in seconds").addIntegerOption(o=>o.setName("seconds").setDescription("0 to 21600 seconds").setRequired(true).setMinValue(0).setMaxValue(21600)).setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+new SlashCommandBuilder().setName("timeout").setDescription("Timeout a member for minutes").addUserOption(o=>o.setName("member").setDescription("Member to timeout").setRequired(true)).addIntegerOption(o=>o.setName("minutes").setDescription("Duration (1-40320 minutes)").setRequired(true).setMinValue(1).setMaxValue(40320)).addStringOption(o=>o.setName("reason").setDescription("Reason").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
+new SlashCommandBuilder().setName("untimeout").setDescription("Remove a member timeout").addUserOption(o=>o.setName("member").setDescription("Member to untimeout").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
+new SlashCommandBuilder().setName("kick").setDescription("Kick a member").addUserOption(o=>o.setName("member").setDescription("Member to kick").setRequired(true)).addStringOption(o=>o.setName("reason").setDescription("Reason").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
+new SlashCommandBuilder().setName("ban").setDescription("Ban a member").addUserOption(o=>o.setName("member").setDescription("Member to ban").setRequired(true)).addStringOption(o=>o.setName("reason").setDescription("Reason").setRequired(false)).setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
+new SlashCommandBuilder().setName("userinfo").setDescription("Show member information").addUserOption(o=>o.setName("member").setDescription("Member to inspect").setRequired(false)),
+new SlashCommandBuilder().setName("nickname").setDescription("Change a member nickname").addUserOption(o=>o.setName("member").setDescription("Member").setRequired(true)).addStringOption(o=>o.setName("name").setDescription("New nickname (blank not allowed)").setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageNicknames)
 ];
 
 const dealSeen=new Map();
@@ -326,7 +364,7 @@ client.on("interactionCreate",async i=>{if(!i.isChatInputCommand())return;if(i.c
  const emoji=await i.guild.emojis.create({attachment,name,reason:"Emoji imported by server manager command"});
  await i.editReply("✅ Added custom emoji "+emoji+" as `:"+emoji.name+":` (ID: `"+emoji.id+"`).");
  }catch(e){console.error("add-emoji failed:",e);await i.editReply("❌ Could not add emoji: "+(e?.message||"Unknown error")+". Ensure the bot has Create Expressions/Manage Emojis permission and the server has an available emoji slot.");}}
-if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{await resetBotStructure(i.guild);await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Bot-managed server structure reset and rebuilt. Existing unrelated channels/roles were left untouched.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
+if(i.commandName==="reset-server"){await i.deferReply({ephemeral:true});if(i.options.getString("confirm")!=="RESET")return i.editReply("❌ Confirmation must be exactly RESET.");try{if(!i.guild)throw new Error("Run this command inside a server.");await resetBotStructure(i.guild);const summary=await setup(i.guild);await ensureServerIcon(i.guild);await i.editReply("♻️ Reset finished and marketplace structure rebuilt. Checked "+summary[1]+" channels and "+summary[2]+" roles. Unrelated channels/roles were preserved.");}catch(e){console.error(e);await i.editReply("❌ Reset failed: "+e.message)}}
 if(i.commandName==="mcfa-giveaway"){
  await i.deferReply({ephemeral:true});
  const prize=i.options.getString("prize"), minutes=i.options.getInteger("minutes"), winners=i.options.getInteger("winners")||1;
@@ -346,6 +384,14 @@ if(i.commandName==="mcfa-giveaway"){
   if(ch){const msg=await ch.messages.fetch(data.messageId).catch(()=>null);if(msg)await msg.edit({components:[]}).catch(()=>{});await ch.send(chosen.length?"🏆 Giveaway ended! Prize: **"+data.prize+"**\nWinner(s): "+chosen.map(id=>"<@"+id+">").join(", "):"🎁 Giveaway ended, but there were no entries.");}
  },minutes*60000);
 }
+if(i.commandName==="purge"){const amount=i.options.getInteger("amount");try{const deleted=await i.channel.bulkDelete(amount,true);await i.reply({content:"🧹 Deleted "+deleted.size+" recent messages. Messages older than 14 days cannot be bulk-deleted.",ephemeral:true});}catch(e){await i.reply({content:"❌ Purge failed: "+e.message,ephemeral:true});}}
+if(i.commandName==="slowmode"){const seconds=i.options.getInteger("seconds");try{await i.channel.setRateLimitPerUser(seconds,"Slowmode set by "+i.user.tag);await i.reply("⏱️ Slowmode set to "+seconds+" second(s).");}catch(e){await i.reply({content:"❌ Slowmode failed: "+e.message,ephemeral:true});}}
+if(i.commandName==="timeout"){const user=i.options.getUser("member"),minutes=i.options.getInteger("minutes"),reason=i.options.getString("reason")||"No reason provided";try{const m=await i.guild.members.fetch(user.id);if(m.id===i.user.id||m.id===client.user.id)throw new Error("You cannot timeout yourself or the bot.");await m.timeout(minutes*60000,reason);await i.reply("🔇 Timed out "+user+" for "+minutes+" minute(s). Reason: "+reason);}catch(e){await i.reply({content:"❌ Timeout failed: "+e.message,ephemeral:true});}}
+if(i.commandName==="untimeout"){const user=i.options.getUser("member");try{const m=await i.guild.members.fetch(user.id);await m.timeout(null,"Timeout removed by "+i.user.tag);await i.reply("🔊 Timeout removed for "+user+".");}catch(e){await i.reply({content:"❌ Untimeout failed: "+e.message,ephemeral:true});}}
+if(i.commandName==="kick"){const user=i.options.getUser("member"),reason=i.options.getString("reason")||"No reason provided";try{const m=await i.guild.members.fetch(user.id);if(!m.kickable)throw new Error("I cannot kick this member. Check role hierarchy and permissions.");await m.kick(reason);await i.reply("👢 Kicked "+user+" • "+reason);}catch(e){await i.reply({content:"❌ Kick failed: "+e.message,ephemeral:true});}}
+if(i.commandName==="ban"){const user=i.options.getUser("member"),reason=i.options.getString("reason")||"No reason provided";try{const m=await i.guild.members.fetch(user.id);if(!m.bannable)throw new Error("I cannot ban this member. Check role hierarchy and permissions.");await m.ban({reason});await i.reply("🔨 Banned "+user+" • "+reason);}catch(e){await i.reply({content:"❌ Ban failed: "+e.message,ephemeral:true});}}
+if(i.commandName==="userinfo"){const user=i.options.getUser("member")||i.user;const m=await i.guild.members.fetch(user.id).catch(()=>null);const embed=new EmbedBuilder().setTitle("👤 User Info — "+user.username).setThumbnail(user.displayAvatarURL()).addFields({name:"User ID",value:user.id,inline:true},{name:"Created",value:"<t:"+Math.floor(user.createdTimestamp/1000)+":D>",inline:true},{name:"Joined",value:m?.joinedTimestamp?"<t:"+Math.floor(m.joinedTimestamp/1000)+":D>":"Unknown",inline:true},{name:"Roles",value:m?[...m.roles.cache.filter(r=>r.id!==i.guild.id).values()].map(r=>r.toString()).slice(0,20).join(", ")||"None":"Not in server",inline:false}).setColor(0x5865F2);await i.reply({embeds:[embed],ephemeral:true});}
+if(i.commandName==="nickname"){const user=i.options.getUser("member"),name=i.options.getString("name");try{const m=await i.guild.members.fetch(user.id);if(!m.manageable)throw new Error("I cannot manage this member due to role hierarchy.");await m.setNickname(name,"Nickname changed by "+i.user.tag);await i.reply("✏️ Updated nickname for "+user+".");}catch(e){await i.reply({content:"❌ Nickname failed: "+e.message,ephemeral:true});}}
 if(i.commandName==="roles")await i.reply({content:"🎭 Go to #🎭・roles and react to the panels.",ephemeral:true});if(i.commandName==="market")await i.reply({content:"🛒 Marketplace is ready: use the Item Market forums for selling, buying, trades, rare items, bulk items and deals.",ephemeral:true});if(i.commandName==="dev")await i.reply({content:"💻 Developer hub is ready: Java, Paper, Spigot, Velocity, code review, plugin showcase and bug reports.",ephemeral:true});
 if(i.commandName==="help")await i.reply({content:"🛒 **Market:** /market /deal-scan\n💱 **Trading:** /invite\n🛡️ **Moderation:** /lock /unlock /announce\n🎫 **Support:** /ticket /close-ticket\n🔧 **Utility:** /ping /serverinfo /roles /dev",ephemeral:true});
 if(i.commandName==="ping")await i.reply("🏓 Pong! "+client.ws.ping+"ms");
